@@ -1,6 +1,28 @@
 ##!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import re
+#==============================================================================
+# Globals
+CODE_INDENT = 4
+
+#==============================================================================
+# Helper Functions
+def match_at(pattern, string, start_offset):
+    """search for regex pattern, starts at offset
+
+    :pattern: a regex string
+    :returns: offset if found else None
+
+    """
+    try:
+        return re.search(pattern, string, start_offset).start()
+    except:
+        return None
+
+#==============================================================================
+# Node & block
+
 class Node(object):
     """A tree node"""
     def __init__(self, parent=None):
@@ -69,7 +91,7 @@ class Block(Node):
         self.col_num     = col_num
         self.title       = title
 
-    def can_be_sibling(self, parser):
+    def can_be_sibling(self, line):
         """Check if a line can be sibling of current element
 
         :line: The input line of text to be checked
@@ -153,6 +175,82 @@ class BlockQuote(Block):
     def __init__(self, *args, **kw):
         super(BlockQuote, self).__init__(*args, **kw)
 
-    def can_be_sibling(self, parser):
-        line = parser.current_line
+    def can_be_sibling(self, line):
+        pass
 
+
+class Line(object):
+    """Parser for line, storing several states about line"""
+    def __init__(self, line, offset=0, column=0):
+        super(Line, self).__init__()
+        self.line = line
+
+        self.offset = offset # offset is based on characters
+        self.column = column # column is based on spaces(tab as 4 space)
+
+
+        # if a tab exists, then it counts as 4 spaces normally.
+        # then if we advance cursor less than 4 column,
+        # then this tab is called partial_consumed_tab
+        self.partial_consumed_tab = False
+
+    def find_next_none_space(self):
+        """Find the next none-space character, save some states accordingly"""
+        next_non_space = match_at(r'[^ \t]', self.line, self.offset)
+
+        self.blank = next_non_space is None or self.line[next_non_space] in ('\n', '\r')
+        self.next_non_space = next_non_space
+
+        spaces = self.line if next_non_space is None else self.line[self.offset, next_non_space]
+        self.next_non_space_column = len(spaces.replace('\t', ' '))
+        self.indent = self.next_non_space_column - self.column
+        self.indented = self.indent >= CODE_INDENT
+
+    def advance_next_non_space(self):
+        """Advance current column to next non space character"""
+        self.offset = self.next_non_space
+        self.column = self.next_non_space_column
+
+    def advance_offset(self, count, tab_as_space=False):
+        """advance current cursor `offset` columns
+
+        :count: the offset to advance
+        :tab_as_space: if it is true, then tab is treated as 4 spaces
+
+        """
+        line = self.line
+        for c in line[self.offset:]:
+            if c == '\t':
+
+                # one special rule here is that a tab with preceding spaces can not be
+                # treated as full 4 spaces(_ as space, > as tab)
+                # __> abc  => _____abc (5 space + abc)
+                tab_spaces = 4 - (self.column % 4)
+
+                self.partial_consumed_tab = tab_as_space and tab_as_space > count
+                column_to_advance = count if tab_as_space > count else tab_as_space
+                self.column += column_to_advance
+                self.offset += 0 if self.partial_consumed_tab else 1
+                count -= tab_spaces if tab_as_space else 1
+            else:
+                self.partial_consumed_tab = False
+                self.offset += 1;
+                self.column += 1
+                count -= 1
+
+            if count <= 0:
+                break
+
+    def get_line(self):
+        """return the line the strip contents before current offset, properly handle partially
+        consumed tabs
+
+        :returns: a string that contains processed line
+
+        """
+        ret = ""
+        if self.partial_consumed_tab:
+            self.offset += 1
+            tab_spaces = 4 - (self.column % 4)
+            ret += ' ' * tab_as_space
+        return ret + self.line[self.offset:]
