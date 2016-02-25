@@ -195,7 +195,8 @@ class Block(Node):
         """Check if a line can be sibling of current element
 
         :line: instance of class Line: The input line of text to be checked
-        :returns: 0 for yes, 1 for no
+        :returns: 0 for yes,
+                  1 for no
                   2 for 'OK, we take this line, you guys go on with the next line', for code_block
 
         """
@@ -386,4 +387,19 @@ class CodeBlock(Block):
         else:
             # TODO: strip ending spaces
             pass
+
+class Paragraph(Block):
+    """paragraph"""
+    type = 'paragraph'
+    acceptsLines = True
+    def __init__(self, *arg, **kw):
+        super(Paragraph, self).__init__(*arg, **kw)
+
+    def can_be_sibling(self, line):
+        return 1 if line.blank else 0
+
+    def finalize(self, line):
+        # TODO: later
+        pass
+
 
