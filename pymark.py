@@ -120,6 +120,17 @@ class Line(object):
             return self.line[self.offset if not column else column]
         except:
             return None
+
+class Parser(object):
+    """Parser object that saves parse states"""
+    def __init__(self, subject = None, pos = 0):
+        super(Parser, self).__init__()
+        self.doc = Block.make_block('document', 0, 0)
+        self.subject = subject
+        self.pos = pos
+        self.tip = self.doc
+        self.refmap = {}
+
 #==============================================================================
 # Node & block
 
@@ -191,10 +202,10 @@ class Block(Node):
         self.col_num     = col_num
         self.title       = title
 
-    def can_be_sibling(self, line):
+    def can_be_sibling(self, parser):
         """Check if a line can be sibling of current element
 
-        :line: instance of class Line: The input line of text to be checked
+        :parser: parser object that containsof class Line: The input line of text to be checked
         :returns: 0 for yes,
                   1 for no
                   2 for 'OK, we take this line, you guys go on with the next line', for code_block
@@ -277,7 +288,8 @@ class BlockQuote(Block):
     def __init__(self, *args, **kw):
         super(BlockQuote, self).__init__(*args, **kw)
 
-    def can_be_sibling(self, line):
+    def can_be_sibling(self, parser):
+        line = parser.current_line
         if not line.indented and line.peek(line.next_non_space) == C_GREATERTHAN:
             line.advance_next_non_space()
             line.advance_offset(1) # consume '>'
@@ -301,7 +313,8 @@ class ListItem(Block):
     def __init__(self, *args, **kw):
         super(ListItem, self).__init__(*args, **kw)
 
-    def can_be_sibling(self, line):
+    def can_be_sibling(self, parser):
+        line = parser.current_line
         if line.blank:
             if not self.first_child:
                 # blank line after empty list item
@@ -331,7 +344,7 @@ class Heading(Block):
     def __init__(self, *args, **kw):
         super(Heading, self).__init__(*args, **kw)
 
-    def can_be_sibling(self, line):
+    def can_be_sibling(self, parser):
         # headings can never contain more than one line
         return 1 # can not
 
@@ -343,7 +356,7 @@ class ThematicBreak(Block):
     def __init__(self, *args, **kw):
         super(ThematicBreak, self).__init__(*args, **kw)
 
-    def can_be_sibling(self, line):
+    def can_be_sibling(self, parser):
         # thematic break can never contain more than one line
         return 1 # can not
 
@@ -354,7 +367,8 @@ class CodeBlock(Block):
     def __init__(self, *args, **kw):
         super(CodeBlock, self).__init__(*args, **kw)
 
-    def can_be_sibling(self, line):
+    def can_be_sibling(self, parser):
+        line = parser.current_line
         if self.is_fenced:
             # fenced
             match = re_closing_code_fence.match(line[line.next_non_space:])
@@ -395,7 +409,8 @@ class Paragraph(Block):
     def __init__(self, *arg, **kw):
         super(Paragraph, self).__init__(*arg, **kw)
 
-    def can_be_sibling(self, line):
+    def can_be_sibling(self, parser):
+        line = parser.current_line
         return 1 if line.blank else 0
 
     def finalize(self, line):
