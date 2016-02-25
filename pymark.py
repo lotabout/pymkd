@@ -130,6 +130,51 @@ class Parser(object):
         self.pos = pos
         self.tip = self.doc
         self.refmap = {}
+        self.line_num = 0
+
+    def incorporate_line(self, line):
+        """Analyze a line of text and update the document appropriately"""
+        all_matched = True
+        self.line_num += 1
+
+        self.current_line = Line(line, 0, 0)
+
+        container = self.doc
+        self.oldtip = self.tip
+
+        # we want to find the correct container that is valid to process
+        # current line
+        while len(container.children) > 0:
+            last_child = container.last_child
+            if not last_child.is_open:
+                break
+            container = last_child
+
+            self.current_line.find_next_none_space()
+
+            can_be_sibling = container.can_be_sibling(self)
+            if can_be_sibling == 0:
+                # can be sibling
+                pass
+            elif can_be_sibling == 1:
+                # cannot be sibling
+                all_matched = False
+            elif can_be_sibling == 2:
+                # the line is process
+                return
+            else:
+                raise Exception('can_be_sibling returned illegal value')
+
+            if not all_matched:
+                container = container.parent
+                break
+
+        # now we have the correct container, we need to actually process this
+        # line according to current context
+
+
+
+
 
 #==============================================================================
 # Node & block
@@ -139,6 +184,7 @@ class Node(object):
     def __init__(self, parent=None):
         self.parent = parent
         self.children = []
+        self.is_open = False
 
     @property
     def first_child(self):
