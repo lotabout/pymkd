@@ -6,6 +6,10 @@ import re
 # Globals
 CODE_INDENT = 4
 
+C_TAB = '\t'
+C_SPACE = ' '
+C_GREATERTHAN = '>'
+
 #==============================================================================
 # Helper Functions
 def match_at(pattern, string, start_offset):
@@ -19,6 +23,9 @@ def match_at(pattern, string, start_offset):
         return re.search(pattern, string, start_offset).start()
     except:
         return None
+
+def is_space_or_tab(character):
+    return character == C_SPACE or character == C_TAB
 
 #==============================================================================
 # Node & block
@@ -94,7 +101,7 @@ class Block(Node):
     def can_be_sibling(self, line):
         """Check if a line can be sibling of current element
 
-        :line: The input line of text to be checked
+        :line: instance of class Line: The input line of text to be checked
         :returns: 0 for yes, 1 for no
                   2 for 'OK, we take this line, you guys go on with the next line', for code_block
 
@@ -176,8 +183,21 @@ class BlockQuote(Block):
         super(BlockQuote, self).__init__(*args, **kw)
 
     def can_be_sibling(self, line):
-        pass
+        if not line.indented and line.peek(line.next_non_space) == C_GREATERTHAN:
+            line.advance_next_non_space()
+            line.advance_offset(1) # consume '>'
 
+            optional_space = line.peek()
+            if is_space_or_tab(optional_space):
+                line.advance_offset(1, True)
+
+            return 0 # can be sibling
+
+        else:
+            return 1 # can not be sibling
+
+    def can_contain(self, block):
+        return block.type != 'list-item'
 
 class Line(object):
     """Parser for line, storing several states about line"""
@@ -254,3 +274,15 @@ class Line(object):
             tab_spaces = 4 - (self.column % 4)
             ret += ' ' * tab_as_space
         return ret + self.line[self.offset:]
+
+    def peek(self, column=None):
+        """peek the character on the current line at `column`
+
+        :column: the target position
+        :returns: None if not exist, else the character
+
+        """
+        try:
+            return self.line[self.offset if not column else column]
+        except:
+            return None
