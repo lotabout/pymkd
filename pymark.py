@@ -10,6 +10,9 @@ C_TAB = '\t'
 C_SPACE = ' '
 C_GREATERTHAN = '>'
 
+# Regular Expressions
+re_closing_code_fence = re.compile(r'^(`{3,}|~{3,})(?= *$)')
+
 #==============================================================================
 # Helper Functions
 def match_at(pattern, string, start_offset):
@@ -319,4 +322,68 @@ class ListItem(Block):
     def can_contain(self, block):
         return block.type != 'list-item'
 
+
+class Heading(Block):
+    """Heading"""
+
+    type = 'heading'
+    def __init__(self, *args, **kw):
+        super(Heading, self).__init__(*args, **kw)
+
+    def can_be_sibling(self, line):
+        # headings can never contain more than one line
+        return 1 # can not
+
+
+class ThematicBreak(Block):
+    """Thematic Break"""
+
+    type = 'thematic-break'
+    def __init__(self, *args, **kw):
+        super(ThematicBreak, self).__init__(*args, **kw)
+
+    def can_be_sibling(self, line):
+        # thematic break can never contain more than one line
+        return 1 # can not
+
+class CodeBlock(Block):
+    """code block"""
+    type = "code-block"
+    acceptsLines = True
+    def __init__(self, *args, **kw):
+        super(CodeBlock, self).__init__(*args, **kw)
+
+    def can_be_sibling(self, line):
+        if self.is_fenced:
+            # fenced
+            match = re_closing_code_fence.match(line[line.next_non_space:])
+            fence = match.group(1) if match else None
+            if fence and fence.startswith(self.fence_char) and len(fence) > self.fence_length:
+                # closing fence
+                self.finalize(line)
+                return 2 # line processed, go on
+            else:
+                # skip optional spaces of fence
+                count = self.fence_offset
+                while count > 0 and is_space_or_tab(line.peek()):
+                    line.advance_offset(1, true)
+                    count -= 1
+        else:
+            # indented
+            if line.indent >= CODE_INDENT:
+                line.advance_offset(CODE_INDENT, true)
+            elif line.blank:
+                line.advance_next_non_space()
+            else:
+                return 1 # not allowed
+
+        return 0 # allowed
+
+    def finalize(self, parser):
+        if self.is_fenced:
+            # TODO: first line becomes info string
+            pass
+        else:
+            # TODO: strip ending spaces
+            pass
 
