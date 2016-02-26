@@ -35,12 +35,13 @@ def is_space_or_tab(character):
 
 class Line(object):
     """Parser for line, storing several states about line"""
-    def __init__(self, line, offset=0, column=0):
+    def __init__(self, line, offset=0, column=0, line_num):
         super(Line, self).__init__()
         self.line = line
 
         self.offset = offset # offset is based on characters
         self.column = column # column is based on spaces(tab as 4 space)
+        self.line_num = line_num
 
 
         # if a tab exists, then it counts as 4 spaces normally.
@@ -95,7 +96,8 @@ class Line(object):
             if count <= 0:
                 break
 
-    def get_line(self):
+    @property
+    def clean_line(self):
         """return the line the strip contents before current offset, properly handle partially
         consumed tabs
 
@@ -131,13 +133,93 @@ class Parser(object):
         self.tip = self.doc
         self.refmap = {}
         self.line_num = 0
+        self.last_matched_container = self.doc
+
+    def add_line(self, line):
+        """Add a line to the block at the tip, we assume that the tip can accept lines
+        That check should be done before accept lines
+
+        :line: is an object of class Line
+
+        """
+        if not self.tip.is_open:
+            raise Exception("Attempt to add line '" + line + "' to closed container")
+
+        self.tip.lines.append(line.clean_line)
+
+    def finalize(self, block, line_num):
+        """Finalize a block, close it and do necessary postprocessing
+        e.g creating string_content from string, setting 'tight' or 'loose' status of a
+        list, parsing the beginnings of a paragraphs for reference definitions.
+        reset the tip to the parent of the close. block.
+
+        :block: to b
+        :line_num: TODO
+
+        """
+        parent = block.parent
+        block.is_open = False
+
+        if line_num > block.start_line:
+            # current block ends before line_num
+            block.end_line = line_num - 1
+        else:
+            block.end_line = line_num
+
+
+        block.finalize(self)
+        self.tip = parent
+
+    def add_child(self, block_type, line_num, offset):
+        """Add block of type tag as a child of the tip. If the tip cannot accept children
+        close and finalize it and try its parent, recursively.
+
+        :block_type: TODO
+        :line_num: TODO
+        :offset: TODO
+        :returns: TODO
+
+        """
+        new_block = Block.make_block(block_type, line_num, offset+1)
+
+        while not self.tip.can_contain(new_block):
+            self.finalize(self.tip, line_num)
+
+        self.tip.append_child(new_block)
+        self.tip = new_block
+        return new_block
+
+    def break_out_of_lists(self, block, line_num):
+        """Break out of all containing lists, resetting the tip of the document
+        to the parent of the highest list, and finalizing all the lists.
+
+        :block: TODO
+        :line_num: TODO
+        :returns: TODO
+
+        """
+        b = block
+        last_list = None
+        while True:
+            if b.type == 'list':
+                last_list = b
+            b = b.parent
+            if not b:
+                break
+
+        if last_list:
+            while block != last_list:
+                self.finalize(block)
+                block = block.parent
+            self.finalize(last_list, line_num)
+            self.tip = last_list.parent
 
     def incorporate_line(self, line):
         """Analyze a line of text and update the document appropriately"""
         all_matched = True
         self.line_num += 1
 
-        self.current_line = Line(line, 0, 0)
+        self.current_line = Line(line, 0, 0, self.line_num)
 
         container = self.doc
         self.oldtip = self.tip
@@ -171,8 +253,22 @@ class Parser(object):
 
         # now we have the correct container, we need to actually process this
         # line according to current context
+        self.all_closed = self.tip == self.oldtip
+        self.last_matched_container = container
 
+        # check to see if we hit 2nd blank line; if so, break out of lists
+        if self.current_line.blank and container.last_child.last_line_blank:
+            self.break_out_of_lists(container, self.line_num)
+            container = self.tip
 
+        is_container_code_block = container.type == 'code-block'
+
+        # unless the matched container is a code block, try new block starts
+        # adding children to the last matched container
+        while not is_container_code_block:
+            self.current_line.find_next_none_space()
+
+            # 
 
 
 
@@ -185,6 +281,7 @@ class Node(object):
         self.parent = parent
         self.children = []
         self.is_open = False
+        self.lines = []
 
     @property
     def first_child(self):
@@ -233,19 +330,19 @@ class Block(Node):
     type = 'block'
 
     @staticmethod
-    def make_block(tagtype, line_num, col_num):
+    def make_block(tagtype, start_line, start_col):
         for block in Block.__subclasses__():
             if block.type == tagtype:
-                return block(line_num = line_num, col_num = col_num)
+                return block(start_line = start_line, start_col = start_col)
         return None
 
-    def __init__(self, description="", label="", line_num=0, col_num=0, title=""):
+    def __init__(self, description="", label="", start_line=0, start_col=0, title=""):
         super(Block, self).__init__()
 
         self.description = description
         self.label       = label
-        self.line_num    = line_num
-        self.col_num     = col_num
+        self.start_line  = start_line
+        self.start_col   = start_col
         self.title       = title
 
     def can_be_sibling(self, parser):
@@ -286,6 +383,17 @@ class Block(Node):
             return last_child.ends_with_blank_line if last_child else False
         else:
             return False
+
+    @staticmethod
+    def starts(container, line):
+        """try a line and test if container block fits
+
+        :line: TODO
+        :returns: 0 = not match
+                  1 = matched container, keep going
+                  2 = matched leaf, no more block starts
+        """
+        pass
 
 
 class Document(Block):
