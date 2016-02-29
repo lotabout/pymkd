@@ -162,7 +162,7 @@ class Block(Node):
         return None
 
     @staticmethod
-    def which_block(parser):
+    def matched_block(parser):
         """iterate through all block trying to parse current line.
 
         :returns: the block that consume the line, if no block matches return None.
@@ -183,7 +183,7 @@ class Block(Node):
                   CONSUMED if the line ends the current block
 
         """
-        pass
+        return YES
 
     def close(self, parser):
         """Action to be made when a block is closed/finalized"""
@@ -212,6 +212,82 @@ class Block(Node):
             return last_child.ends_with_blank_line if last_child else False
         else:
             return False
+
+
+class Document(Block):
+    """root block of a document"""
+
+    name = 'document'
+    type = 'root'
+    def __init__(self, *args, **kws):
+        super(Document, self).__init__(*args, **kws)
+
+    def can_contain(self, block):
+        # a document can contain `list` but not `item` directly
+        # that means an `item` should be wrapped by `list`
+        return block.name != 'list-item'
+
+class List(Block):
+    """A container list block"""
+
+    name = 'list'
+    type = 'container'
+    def __init__(self, *args, **kws):
+        super(List, self).__init__(*args, **kws)
+        self.tight = True
+
+    def can_contain(self, block):
+        # can contain only 'list-item'
+        return block == 'list-item'
+
+    def close(self, parser):
+        # set the tight status of a list
+        self.tight = True
+
+        for item in self.children:
+            if item.ends_with_blank_line() and item.sibling:
+                self.tight = False
+                break
+
+            # recurse into children of list item, to see if there are spaces between them
+            # 1. aaa  <- subitem
+            #
+            #    bbb  <- subitem
+            # 2. ccc
+            for subitem in item.children:
+                if subitem.ends_with_blank_line() and subitem.sibling and item.sibling:
+                    self.tight = False
+                    break
+
+class ListItem(Block):
+    """A single list item"""
+
+    name = 'list-item'
+    def __init__(self, *args, **kw):
+        super(ListItem, self).__init__(*args, **kw)
+
+    def can_strip(self, parser):
+        line = parser.line
+        if line.blank:
+            if not self.first_child:
+                # blank line after empty list item
+                return NO
+            else:
+                line.advance_next_non_space()
+
+        elif line.indent > self.meta.offset + self.meta.padding:
+            # |<->|     offset
+            #    1.  abc
+            #    ->||<- padding
+            line.advance_offset(self.meta.offset + self.meta.padding)
+
+        else:
+            return NO
+
+        return YES
+
+    def can_contain(self, block):
+        return block.type != 'list-item'
 
 
 #==============================================================================
