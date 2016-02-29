@@ -140,6 +140,81 @@ class Node(object):
         self.children.append(node)
 
 #==============================================================================
+# Various blocks
+
+class Block(Node):
+    """block"""
+    YES      = 0
+    NO       = 1
+    CONSUMED = 2
+
+    name = 'block'
+
+    def __init__(self, *args, **kws):
+        super(Block, self).__init__(*args, **kws)
+        self.last_line_blank = False
+
+    @staticmethod
+    def make_block(tagtype, start_line, start_col):
+        for block in Block.__subclasses__():
+            if block.name == tagtype:
+                return block(start_line = start_line, start_col = start_col)
+        return None
+
+    @staticmethod
+    def which_block(parser):
+        """iterate through all block trying to parse current line.
+
+        :returns: the block that consume the line, if no block matches return None.
+
+        """
+        for block in Block.__subclasses__():
+            ret = block.try_parsing(parser)
+            if ret is not None:
+                return ret
+        return None
+
+    def can_strip(self, parser):
+        """Check if the current line can be part of current block, block should be
+        a containing block
+
+        :returns: YES      if can parse the line
+                  NO       if cannot parse the line
+                  CONSUMED if the line ends the current block
+
+        """
+        pass
+
+    def close(self, parser):
+        """Action to be made when a block is closed/finalized"""
+        pass
+
+    def can_contain(self, block):
+        """Check if current block can contain other block, for example, a blockquote can contain
+        other blocks, but `list` block can contain only `list-item` block.
+
+        :block: the block to be contained
+        :returns: true if `block` can be contained else false
+
+        """
+        return False
+
+    def ends_with_blank_line(self):
+        """Check if current block ends with blank line, descending if needed for lists
+
+        :returns: True if it ends with blank line, else False
+
+        """
+        if self.last_line_blank:
+            return True
+        elif self.name == 'list' or self.name == 'list-item':
+            last_child = self.last_child
+            return last_child.ends_with_blank_line if last_child else False
+        else:
+            return False
+
+
+#==============================================================================
 # Parser
 
 class Parser(object):
@@ -155,3 +230,4 @@ class Parser(object):
         self.line = Line(line, self.line_num)
 
         self.oldtip = self.tip
+
