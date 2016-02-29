@@ -96,6 +96,50 @@ class Line(object):
             return None
 
 #==============================================================================
+# Node & Block
+
+class Node(object):
+    """A tree node"""
+    def __init__(self, parent=None, start_line=1, start_col=0, end_line=0, end_col=0):
+        self.parent     = parent
+        self.children   = []
+        self.is_open    = False
+        self.lines      = []
+        self.start_line = start_line
+        self.start_col  = start_col
+        self.end_line   = end_line
+        self.end_col    = end_col
+
+    @property
+    def first_child(self):
+        """accessing first child, return None if no child exists"""
+        try:
+            return self.children[0]
+        except:
+            return None
+
+    @property
+    def last_child(self):
+        """Helper function for accessing last child, return None if not child exists"""
+        try:
+            return self.children[-1]
+        except:
+            return None
+
+    @property
+    def sibling(self):
+        """Get the next sibling of a node"""
+        try:
+            return self.parent.children[self._index + 1]
+        except:
+            return None
+
+    def append_child(self, node):
+        """append a child"""
+        node._index = len(self.children)
+        self.children.append(node)
+
+#==============================================================================
 # Parser
 
 class Parser(object):
@@ -109,3 +153,5 @@ class Parser(object):
 
         self.line_num += 1
         self.line = Line(line, self.line_num)
+
+        self.oldtip = self.tip
