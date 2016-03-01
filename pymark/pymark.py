@@ -150,13 +150,15 @@ class Block(Node):
 
     name = 'block'
 
+    block_starts = [ListItem]
+
     def __init__(self, *args, **kws):
         super(Block, self).__init__(*args, **kws)
         self.last_line_blank = False
 
     @staticmethod
     def make_block(tagtype, start_line, start_col):
-        for block in Block.__subclasses__():
+        for block in block_starts:
             if block.name == tagtype:
                 return block(start_line = start_line, start_col = start_col)
         return None
@@ -281,6 +283,8 @@ class ListItem(Block):
             #    ->||<- padding
             line.advance_offset(self.meta.offset + self.meta.padding)
 
+        elif parser.tip.name == 'paragraph' or parser.tip.name == 'fence':
+            return YES
         else:
             return NO
 
@@ -297,7 +301,32 @@ class Parser(object):
     """parse state"""
     def __init__(self, arg):
         super(Parser, self).__init__()
-        self.line_num = 0
+        self.line_num               = 0
+        self.doc                    = Block.make_block('document', 0, 0)
+        self.last_matched_container = None
+        self.tip                    = self.doc # inner most block
+
+    def close(self, block):
+        block.end_line = block.line.line_num
+        block.end_col = len(block.line.line)
+        block.is_open = False
+        block.close(self)
+        self.tip = block.parent
+
+    def close_unmatched(self):
+        if not self.all_closed:
+            while self.oldtip != self.last_matched_container:
+                parent = self.oldtip.parent
+                self.close(self.oldtip)
+                self.oldtip = parent
+            self.all_closed = True
+
+    def add_child(self, block):
+        while not self.tip.can_contain(block):
+            self.close(self.tip)
+
+        self.tip.append_child(block)
+        self.tip = block
 
     def parse_line(self, line):
         """Analyze a line of text and update the AST accordingly"""
@@ -306,4 +335,53 @@ class Parser(object):
         self.line = Line(line, self.line_num)
 
         self.oldtip = self.tip
+        container = self.doc
 
+        # go through the containers and check if the container can contain this line.
+        last_child = container.last_child
+        while last_child and last_child.is_open:
+            container = last_child
+
+            self.line.find_next_non_space()
+
+            ret = container.can_strip(self)
+            if ret == Block.YES:
+                pass
+            elif ret == Block.NO:
+                container = container.parent
+                break
+            elif ret == Block.CONSUMED:
+                # the line is already handled, return
+                return
+            else:
+                raise Exception('can_strip returns unknown value')
+
+        # close blocks that are not matched
+        self.all_closed = container == self.oldtip
+        self.last_matched_container = container
+        self.close_unmatched()
+
+        # Now the line is striped, parse it as a normal unindented line
+
+        if ret == Block.YES:
+            # the inner most block(leaf block) can consume this line
+            container.consume(parser)
+        else:
+            # treat the line as a new line
+            self.parse_rest()
+
+    def parse_rest(self):
+        """parse rest of the line, that means it will not check indents of containing blocks"""
+        pass
+
+        # use try_parsing to get the block.
+        # use block's
+
+        block = Block.matched_block(self)
+        self.add_child(block)
+
+        if block.type == 'leaf':
+            return
+        elif block.type == 'container':
+            # the line header is already consumed
+            parse_rest()
