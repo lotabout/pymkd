@@ -88,10 +88,22 @@ class Line(object):
             ret += ' ' * tab_as_space
         return ret + self.line[self.offset:]
 
+    @property
+    def after_strip(self):
+        """return the line that ignore the indents"""
+        return self.line[self.next_non_space:]
+
     def peek(self, offset=None):
-        """peek the character on the current line at `offset`"""
+        """peek the character `offset` after on the current line"""
         try:
             return self.line[self.offset if not offset else offset]
+        except:
+            return None
+
+    def get_char(self, offset=0):
+        """get the character on the current line at `offset`"""
+        try:
+            return self.line[0]
         except:
             return None
 
@@ -261,12 +273,29 @@ class List(Block):
                     self.tight = False
                     break
 
+
+
 class ListItem(Block):
     """A single list item"""
 
     name = 'list-item'
+    re_bullet_list_marker = re.compile(r'^([*+-])')
+    re_ordered_list_marker = re.compile(r'^(\d{1,9})([.)])')
+
     def __init__(self, *args, **kw):
         super(ListItem, self).__init__(*args, **kw)
+
+    class Meta(object):
+        """meta info for list marks"""
+        def __init__(self):
+            super(Meta, self).__init__()
+            self.type          = None
+            self.tight         = True
+            self.bullet_char   = None
+            self.start         = None
+            self.delimiter     = None
+            self.padding       = None
+            self.marker_offset = None
 
     def can_strip(self, parser):
         line = parser.line
@@ -292,6 +321,72 @@ class ListItem(Block):
 
     def can_contain(self, block):
         return block.type != 'list-item'
+
+    def try_parsing(self, parser):
+        if parser.line.indented and parser.tip.name != 'list':
+            return None
+
+        meta = ListItem.parse_list_marker(parser)
+        if not meta:
+            return None
+
+        # add outer list if needed
+        if parser.tip.name != 'list':
+            pass
+
+
+    @staticmethod
+    def parse_list_marker(parser):
+        line = parser.line
+        meta = Meta()
+        meta.marker_offset = line.indent
+
+        m = re_bullet_list_marker.match(line.after_strip)
+        if m is not None:
+            meta.type = 'bullet'
+            meta.bullet_char = match.group(1)
+            match = m
+
+        m = re_ordered_list_marker.match(line.after_strip)
+        if m is not None:
+            meta.type = 'ordered'
+            meta.start = int(match.group(1))
+            meta.delimiter = match.group(2)
+            match = m
+
+        if meta.type is None:
+            # not matched
+            return
+
+        # make sure that we have at least one space after marker or is blank
+        next_char = line.get_char(line.next_non_space + len(match.group(0)).length)
+        if not (next_char is None or next_char == C_TAB or next_char == C_SPACE):
+            return None
+
+        # got a match, advance cursor over current list marker
+        line.advance_next_non_space()
+        line.advance_offset(len(match.group(0)), True)
+
+        # calculate padding
+
+        spaces_start_col = line.column
+        spaces_start_offset = line.offset
+
+        while line.column - spaces_start_col < 5 and is_space_or_tab(line.peek(1)):
+            line.advance_offset(1, True)
+
+        blank_item = line.peek(1) == None
+        spaces_after_marker = line.column - spaces_start_col
+        if spaces_after_marker >= 5 or spaces_after_marker < 1 or blank_item:
+            meta.padding = len(match.group(0)) + 1
+            # restore the padding movement
+            line.column = spaces_start_col
+            line.offset = spaces_start_offset
+            if is_space_or_tab(peek(1)):
+                line.advance_offset(1, True)
+        else:
+            meta.padding = len(match.group(0)) + spaces_after_marker
+        return meta
 
 
 #==============================================================================
