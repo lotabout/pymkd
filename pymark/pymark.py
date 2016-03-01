@@ -297,6 +297,11 @@ class ListItem(Block):
             self.padding       = None
             self.marker_offset = None
 
+        def __eq__(self, other):
+            return (self.type == other.type and
+                    self.delimiter == other.delimiter and
+                    self.bullet_char == other.bullet_char)
+
     def can_strip(self, parser):
         line = parser.line
         if line.blank:
@@ -322,7 +327,8 @@ class ListItem(Block):
     def can_contain(self, block):
         return block.type != 'list-item'
 
-    def try_parsing(self, parser):
+    @staticmethod
+    def try_parsing(parser):
         if parser.line.indented and parser.tip.name != 'list':
             return None
 
@@ -331,8 +337,15 @@ class ListItem(Block):
             return None
 
         # add outer list if needed
-        if parser.tip.name != 'list':
-            pass
+        if parser.tip.name != 'list' or parser.tip.meta != meta:
+            list_block = Block.make_block('list', parser.line.line_num, parser.next_non_space)
+            list_block.meta = meta
+            parser.add_child(list_block)
+
+        # add the list item
+        list_item = Block.make_block('list-item', parser.line.line_num, parser.next_non_space)
+        list_item.meta = meta
+        parser.add_child(list_item)
 
 
     @staticmethod
