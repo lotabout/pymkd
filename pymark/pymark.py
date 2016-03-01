@@ -7,8 +7,14 @@ import re
 # Globals
 CODE_INDENT = 4
 
+C_SPACE = ' '
+C_TAB = '\t'
+
 #==============================================================================
 # Helpers
+
+def is_space_or_tab(character):
+    return character == C_SPACE or character == C_TAB
 
 class Line(object):
     """A line"""
@@ -33,8 +39,8 @@ class Line(object):
     def find_next_non_space(self):
         """Find next character that is not tab or space, save indentation status"""
 
-        indent = re_tab_space.match(self.line[self.offset:])
-        indent = indent if indent else ''
+        indent = self.re_tab_space.match(self.line[self.offset:])
+        indent = indent.group(0) if indent else ''
 
         self.blank = len(indent) >= len(self.line[self.offset:])
 
@@ -103,7 +109,7 @@ class Line(object):
     def get_char(self, offset=0):
         """get the character on the current line at `offset`"""
         try:
-            return self.line[0]
+            return self.line[offset]
         except:
             return None
 
@@ -115,7 +121,7 @@ class Node(object):
     def __init__(self, parent=None, start_line=1, start_col=0, end_line=0, end_col=0):
         self.parent     = parent
         self.children   = []
-        self.is_open    = False
+        self.is_open    = True
         self.lines      = []
         self.start_line = start_line
         self.start_col  = start_col
@@ -149,6 +155,7 @@ class Node(object):
     def append_child(self, node):
         """append a child"""
         node._index = len(self.children)
+        node.parent = self
         self.children.append(node)
 
 #==============================================================================
@@ -162,15 +169,13 @@ class Block(Node):
 
     name = 'block'
 
-    block_starts = [ListItem]
-
     def __init__(self, *args, **kws):
         super(Block, self).__init__(*args, **kws)
         self.last_line_blank = False
 
     @staticmethod
     def make_block(tagtype, start_line, start_col):
-        for block in block_starts:
+        for block in Block.__subclasses__():
             if block.name == tagtype:
                 return block(start_line = start_line, start_col = start_col)
         return None
@@ -183,6 +188,8 @@ class Block(Node):
 
         """
         for block in Block.__subclasses__():
+            if not hasattr(block, 'try_parsing'):
+                continue
             ret = block.try_parsing(parser)
             if ret is not None:
                 return ret
@@ -197,7 +204,7 @@ class Block(Node):
                   CONSUMED if the line ends the current block
 
         """
-        return YES
+        return Block.YES
 
     def close(self, parser):
         """Action to be made when a block is closed/finalized"""
@@ -227,6 +234,15 @@ class Block(Node):
         else:
             return False
 
+    def _repr(self, level=0):
+        ret = []
+        ret.append('    '*level + '%s (%d, %d)/(%d, %d)' % (self.name, self.start_line, self.start_col, self.end_line, self.end_col))
+        for child in self.children:
+            ret.append(child._repr(level+1))
+        return '\n'.join(ret)
+
+    def __repr__(self):
+        return self._repr()
 
 class Document(Block):
     """root block of a document"""
@@ -252,7 +268,7 @@ class List(Block):
 
     def can_contain(self, block):
         # can contain only 'list-item'
-        return block == 'list-item'
+        return block.name == 'list-item'
 
     def close(self, parser):
         # set the tight status of a list
@@ -288,7 +304,6 @@ class ListItem(Block):
     class Meta(object):
         """meta info for list marks"""
         def __init__(self):
-            super(Meta, self).__init__()
             self.type          = None
             self.tight         = True
             self.bullet_char   = None
@@ -307,22 +322,22 @@ class ListItem(Block):
         if line.blank:
             if not self.first_child:
                 # blank line after empty list item
-                return NO
+                return Block.NO
             else:
                 line.advance_next_non_space()
 
-        elif line.indent > self.meta.offset + self.meta.padding:
+        elif line.indent > self.meta.marker_offset+ self.meta.padding:
             # |<->|     offset
             #    1.  abc
             #    ->||<- padding
-            line.advance_offset(self.meta.offset + self.meta.padding)
+            line.advance_offset(self.meta.marker_offset + self.meta.padding)
 
         elif parser.tip.name == 'paragraph' or parser.tip.name == 'fence':
-            return YES
+            return Block.YES
         else:
-            return NO
+            return Block.NO
 
-        return YES
+        return Block.YES
 
     def can_contain(self, block):
         return block.type != 'list-item'
@@ -338,12 +353,12 @@ class ListItem(Block):
 
         # add outer list if needed
         if parser.tip.name != 'list' or parser.tip.meta != meta:
-            list_block = Block.make_block('list', parser.line.line_num, parser.next_non_space)
+            list_block = Block.make_block('list', parser.line.line_num, parser.line.next_non_space)
             list_block.meta = meta
             parser.add_child(list_block)
 
         # add the list item
-        list_item = Block.make_block('list-item', parser.line.line_num, parser.next_non_space)
+        list_item = Block.make_block('list-item', parser.line.line_num, parser.line.next_non_space)
         list_item.meta = meta
         parser.add_child(list_item)
 
@@ -351,20 +366,20 @@ class ListItem(Block):
     @staticmethod
     def parse_list_marker(parser):
         line = parser.line
-        meta = Meta()
+        meta = ListItem.Meta()
         meta.marker_offset = line.indent
 
-        m = re_bullet_list_marker.match(line.after_strip)
+        m = ListItem.re_bullet_list_marker.match(line.after_strip)
         if m is not None:
             meta.type = 'bullet'
-            meta.bullet_char = match.group(1)
+            meta.bullet_char = m.group(1)
             match = m
 
-        m = re_ordered_list_marker.match(line.after_strip)
+        m = ListItem.re_ordered_list_marker.match(line.after_strip)
         if m is not None:
             meta.type = 'ordered'
-            meta.start = int(match.group(1))
-            meta.delimiter = match.group(2)
+            meta.start = int(m.group(1))
+            meta.delimiter = m.group(2)
             match = m
 
         if meta.type is None:
@@ -372,7 +387,7 @@ class ListItem(Block):
             return
 
         # make sure that we have at least one space after marker or is blank
-        next_char = line.get_char(line.next_non_space + len(match.group(0)).length)
+        next_char = line.get_char(line.next_non_space + len(match.group(0)))
         if not (next_char is None or next_char == C_TAB or next_char == C_SPACE):
             return None
 
@@ -395,7 +410,7 @@ class ListItem(Block):
             # restore the padding movement
             line.column = spaces_start_col
             line.offset = spaces_start_offset
-            if is_space_or_tab(peek(1)):
+            if is_space_or_tab(line.peek(1)):
                 line.advance_offset(1, True)
         else:
             meta.padding = len(match.group(0)) + spaces_after_marker
@@ -407,7 +422,7 @@ class ListItem(Block):
 
 class Parser(object):
     """parse state"""
-    def __init__(self, arg):
+    def __init__(self):
         super(Parser, self).__init__()
         self.line_num               = 0
         self.doc                    = Block.make_block('document', 0, 0)
@@ -415,8 +430,8 @@ class Parser(object):
         self.tip                    = self.doc # inner most block
 
     def close(self, block):
-        block.end_line = block.line.line_num
-        block.end_col = len(block.line.line)
+        block.end_line = self.line.line_num
+        block.end_col = len(self.line.line)
         block.is_open = False
         block.close(self)
         self.tip = block.parent
@@ -444,11 +459,14 @@ class Parser(object):
 
         self.oldtip = self.tip
         container = self.doc
+        ret = None
 
         # go through the containers and check if the container can contain this line.
         last_child = container.last_child
+        self.line.find_next_non_space()
         while last_child and last_child.is_open:
             container = last_child
+            last_child = container.last_child
 
             self.line.find_next_non_space()
 
@@ -486,6 +504,9 @@ class Parser(object):
         # use block's
 
         block = Block.matched_block(self)
+        if block is None:
+            return
+
         self.add_child(block)
 
         if block.type == 'leaf':
@@ -493,3 +514,9 @@ class Parser(object):
         elif block.type == 'container':
             # the line header is already consumed
             parse_rest()
+
+x = Parser()
+x.parse_line('1. a')
+x.parse_line('   2. a')
+x.parse_line('2. a')
+print(x.doc)
