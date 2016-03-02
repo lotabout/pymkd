@@ -125,7 +125,6 @@ class Node(object):
         self.parent     = parent
         self.children   = []
         self.is_open    = True
-        self.lines      = []
         self.start_line = start_line
         self.start_col  = start_col
         self.end_line   = end_line
@@ -161,6 +160,14 @@ class Node(object):
         node.parent = self
         self.children.append(node)
 
+    def remove_last(self):
+        try:
+            return self.children.pop()
+        except:
+            return None
+
+
+
 #==============================================================================
 # Various blocks
 
@@ -171,6 +178,7 @@ class Block(Node):
     CONSUMED = 2
 
     name = 'block'
+    precendence = 0 # the less the later
 
     def __init__(self, *args, **kws):
         super(Block, self).__init__(*args, **kws)
@@ -190,10 +198,10 @@ class Block(Node):
         :returns: the block that consume the line, if no block matches return None.
 
         """
-        for block in Block.__subclasses__():
-            if not hasattr(block, 'try_parsing'):
-                continue
-            ret = block.try_parsing(parser)
+        blocks = [b for b in Block.__subclasses__() if hasattr(b, 'try_parsing')]
+
+        for b in sorted(blocks, key=lambda b: -b.precendence):
+            ret = b.try_parsing(parser)
             if ret is not None:
                 return ret
         return None
@@ -233,13 +241,20 @@ class Block(Node):
             return True
         elif self.name == 'list' or self.name == 'list-item':
             last_child = self.last_child
-            return last_child.ends_with_blank_line if last_child else False
+            return last_child.last_line_blank if last_child else False
         else:
             return False
 
+    def consume(self, parser):
+        """Consume current line"""
+        parser.parse_rest()
+
+    def _get_content(self):
+        return ''
+
     def _repr(self, level=0):
         ret = []
-        ret.append('    '*level + '%s (%d, %d)/(%d, %d)' % (self.name, self.start_line, self.start_col, self.end_line, self.end_col))
+        ret.append('    '*level + '%s[%d, %d, %d, %d] [%s]' % (self.name,self.start_line, self.start_col, self.end_line, self.end_col, self._get_content()))
         for child in self.children:
             ret.append(child._repr(level+1))
         return '\n'.join(ret)
@@ -259,6 +274,48 @@ class Document(Block):
         # a document can contain `list` but not `item` directly
         # that means an `item` should be wrapped by `list`
         return block.name != 'list-item'
+
+
+class Paragraph(Block):
+    """A paragraph"""
+
+    name = 'paragraph'
+    type = 'leaf'
+    precendence = -1
+    def __init__(self, *args, **kws):
+        super(Paragraph, self).__init__(*args, **kws)
+        self.lines = []
+
+    def can_strip(self, parser):
+        return Block.NO if parser.line.blank else Block.YES
+
+    def close(self, parser):
+        pass
+
+    def append_line(self, line):
+        self.lines.append(line)
+
+    def _get_content(self):
+        return '|'.join(self.lines)
+
+    @staticmethod
+    def try_parsing(parser):
+        line = parser.line
+
+        if line.blank:
+            return None
+
+        paragraph = Block.make_block('paragraph', line.line_num, line.next_non_space)
+        paragraph.append_line(line.clean_line)
+        return paragraph
+
+    def consume(self, parser):
+        block = parser.parse_rest()
+        if block and block.name == 'paragraph':
+            for line in block.lines:
+                self.append_line(line)
+        parser.tip = parser.oldtip
+        parser.add_child(block)
 
 class List(Block):
     """A container list block"""
@@ -298,6 +355,7 @@ class ListItem(Block):
     """A single list item"""
 
     name = 'list-item'
+    type = 'container'
     re_bullet_list_marker = re.compile(r'^([*+-])')
     re_ordered_list_marker = re.compile(r'^(\d{1,9})([.)])')
 
@@ -322,6 +380,16 @@ class ListItem(Block):
         def __ne__(self, other):
             return not self == other
 
+        def __str__(self):
+            if self.type == 'bullet':
+                return self.bullet_char
+            elif self.type == 'ordered':
+                return str(self.start) + self.delimiter
+            else:
+                return ''
+        def __repr__(self):
+            return str(self)
+
     def can_strip(self, parser):
         line = parser.line
         if line.blank:
@@ -337,8 +405,6 @@ class ListItem(Block):
             #  ->|   |<- padding
             line.advance_offset(self.meta.marker_offset + self.meta.padding)
 
-        elif parser.tip.name == 'paragraph' or parser.tip.name == 'fence':
-            return Block.YES
         else:
             return Block.NO
 
@@ -356,17 +422,23 @@ class ListItem(Block):
         if not meta:
             return None
 
+        ret = None
         # add outer list if needed
         if parser.tip.name != 'list' or parser.tip.meta != meta:
             list_block = Block.make_block('list', parser.line.line_num, parser.line.next_non_space)
             list_block.meta = meta
-            parser.add_child(list_block)
+            ret = list_block
 
         # add the list item
         list_item = Block.make_block('list-item', parser.line.line_num, parser.line.next_non_space)
         list_item.meta = meta
-        parser.add_child(list_item)
 
+        if ret is not None:
+            ret.append_child(list_item)
+        else:
+            ret = list_item
+
+        return ret
 
     @staticmethod
     def parse_list_marker(parser):
@@ -405,25 +477,24 @@ class ListItem(Block):
         spaces_start_col = line.column
         spaces_start_offset = line.offset
 
-        while line.column - spaces_start_col < 5 and is_space_or_tab(line.peek(1)):
+        while line.column - spaces_start_col < 5 and is_space_or_tab(line.peek()):
             line.advance_offset(1, True)
 
-        blank_item = line.peek(1) == None
+        blank_item = line.peek() == None
         spaces_after_marker = line.column - spaces_start_col
         if spaces_after_marker >= 5 or spaces_after_marker < 1 or blank_item:
             meta.padding = len(match.group(0)) + 1
             # restore the padding movement
             line.column = spaces_start_col
             line.offset = spaces_start_offset
-            if is_space_or_tab(line.peek(1)):
+            if is_space_or_tab(line.peek()):
                 line.advance_offset(1, True)
         else:
             meta.padding = len(match.group(0)) + spaces_after_marker
         return meta
 
-    def consume(self, parser):
-        """Consume current line"""
-        parser.parse_rest()
+    def _get_content(self):
+        return str(self.meta)
 
 #==============================================================================
 # Parser
@@ -459,6 +530,9 @@ class Parser(object):
         self.tip.append_child(block)
         self.tip = block
 
+    def remove_last(self):
+        return self.tip.remove_last()
+
     def parse_line(self, line):
         """Analyze a line of text and update the AST accordingly"""
 
@@ -493,16 +567,21 @@ class Parser(object):
         # close blocks that are not matched
         self.all_closed = container == self.oldtip
         self.last_matched_container = container
-        self.close_unmatched()
 
         # Now the line is striped, parse it as a normal unindented line
 
-        if ret == Block.YES:
+        if self.tip.name == 'paragraph' or self.tip.name == 'fence':
+            self.oldtip = container
+            return self.tip.consume(self)
+        elif ret == Block.YES:
             # the inner most block(leaf block) can consume this line
             container.consume(self)
         else:
             # treat the line as a new line
-            self.parse_rest()
+            self.close_unmatched()
+            block = self.parse_rest()
+            if block is not None:
+                self.add_child(block)
 
     def parse_rest(self):
         """parse rest of the line, that means it will not check indents of containing blocks"""
@@ -515,16 +594,18 @@ class Parser(object):
         if block is None:
             return
 
-        self.add_child(block)
-
         if block.type == 'leaf':
-            return
+            return block
         elif block.type == 'container':
             # the line header is already consumed
-            parse_rest()
+            child = self.parse_rest()
+            if child is not None:
+                block.append_child(child)
+            return block
 
 x = Parser()
 x.parse_line('1. a')
+x.parse_line('a')
 x.parse_line('   2. b')
 x.parse_line('      3. c')
 x.parse_line('4. d')
