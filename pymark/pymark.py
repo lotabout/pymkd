@@ -147,6 +147,13 @@ class Node(object):
             return None
 
     @property
+    def tail_child(self):
+        container = self
+        while container.last_child:
+            container = container.last_child
+        return container
+
+    @property
     def sibling(self):
         """Get the next sibling of a node"""
         try:
@@ -160,12 +167,11 @@ class Node(object):
         node.parent = self
         self.children.append(node)
 
-    def remove_last(self):
-        try:
-            return self.children.pop()
-        except:
-            return None
-
+    def append_tail(self, node):
+        container = self
+        while container.last_child:
+            container = container.last_child
+        container.append_child(node)
 
 
 #==============================================================================
@@ -314,8 +320,9 @@ class Paragraph(Block):
         if block and block.name == 'paragraph':
             for line in block.lines:
                 self.append_line(line)
-        parser.tip = parser.oldtip
-        parser.add_child(block)
+        else:
+            parser.tip = parser.oldtip
+            parser.add_child(block)
 
 class List(Block):
     """A container list block"""
@@ -528,10 +535,7 @@ class Parser(object):
             self.close(self.tip)
 
         self.tip.append_child(block)
-        self.tip = block
-
-    def remove_last(self):
-        return self.tip.remove_last()
+        self.tip = block.tail_child
 
     def parse_line(self, line):
         """Analyze a line of text and update the AST accordingly"""
@@ -600,7 +604,7 @@ class Parser(object):
             # the line header is already consumed
             child = self.parse_rest()
             if child is not None:
-                block.append_child(child)
+                block.append_tail(child)
             return block
 
 x = Parser()
