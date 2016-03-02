@@ -45,8 +45,8 @@ class Line(object):
         self.blank = len(indent) >= len(self.line[self.offset:])
 
         self.next_non_space = self.offset + len(indent)
-        self.next_non_space_col = len(indent.replace('\t', '    '))
-        self.indent = self.next_non_space_col - self.column
+        self.indent = len(indent.replace('\t', '    '))
+        self.next_non_space_col = self.column + self.indent
         self.indented = self.indent > CODE_INDENT
 
     def advance_next_non_space(self):
@@ -83,6 +83,9 @@ class Line(object):
             if count <= 0:
                 break
 
+        # update indent information
+        self.find_next_non_space()
+
     @property
     def clean_line(self):
         """return the line the strip contents before current offset, properly handle partially
@@ -99,10 +102,10 @@ class Line(object):
         """return the line that ignore the indents"""
         return self.line[self.next_non_space:]
 
-    def peek(self, offset=None):
+    def peek(self, offset=0):
         """peek the character `offset` after on the current line"""
         try:
-            return self.line[self.offset if not offset else offset]
+            return self.line[self.offset + offset]
         except:
             return None
 
@@ -316,6 +319,8 @@ class ListItem(Block):
             return (self.type == other.type and
                     self.delimiter == other.delimiter and
                     self.bullet_char == other.bullet_char)
+        def __ne__(self, other):
+            return not self == other
 
     def can_strip(self, parser):
         line = parser.line
@@ -326,10 +331,10 @@ class ListItem(Block):
             else:
                 line.advance_next_non_space()
 
-        elif line.indent > self.meta.marker_offset+ self.meta.padding:
-            # |<->|     offset
+        elif line.indent >= self.meta.marker_offset+ self.meta.padding:
+            # | |<--- offset
             #    1.  abc
-            #    ->||<- padding
+            #  ->|   |<- padding
             line.advance_offset(self.meta.marker_offset + self.meta.padding)
 
         elif parser.tip.name == 'paragraph' or parser.tip.name == 'fence':
@@ -416,6 +421,9 @@ class ListItem(Block):
             meta.padding = len(match.group(0)) + spaces_after_marker
         return meta
 
+    def consume(self, parser):
+        """Consume current line"""
+        parser.parse_rest()
 
 #==============================================================================
 # Parser
@@ -491,7 +499,7 @@ class Parser(object):
 
         if ret == Block.YES:
             # the inner most block(leaf block) can consume this line
-            container.consume(parser)
+            container.consume(self)
         else:
             # treat the line as a new line
             self.parse_rest()
@@ -517,6 +525,7 @@ class Parser(object):
 
 x = Parser()
 x.parse_line('1. a')
-x.parse_line('   2. a')
-x.parse_line('2. a')
+x.parse_line('   2. b')
+x.parse_line('      3. c')
+x.parse_line('4. d')
 print(x.doc)
