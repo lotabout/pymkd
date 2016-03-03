@@ -173,6 +173,8 @@ class Node(object):
             container = container.last_child
         container.append_child(node)
 
+    def unlink_last(self):
+        return self.children.pop()
 
 #==============================================================================
 # Various blocks
@@ -253,7 +255,7 @@ class Block(Node):
 
     def consume(self, parser):
         """Consume current line"""
-        parser.parse_rest()
+        pass
 
     def _get_content(self):
         return ''
@@ -319,9 +321,9 @@ class Paragraph(Block):
         block = parser.parse_rest()
         if block and block.name == 'paragraph':
             for line in block.lines:
-                self.append_line(line)
+                self.lines.append(line)
         else:
-            parser.tip = parser.oldtip
+            parser.tip = parser.last_matched_container
             parser.add_child(block)
 
 class Blank(Block):
@@ -349,8 +351,42 @@ class Blank(Block):
         blank = Block.make_block('blank', line.line_num, line.next_non_space)
         return blank
 
-    def consume(self, parser):
-        pass
+class SetextHeading(Block):
+    """Setex Heading"""
+    name = 'setext-heading'
+    type = 'leaf'
+
+    re_setext_heading_line = re.compile(r'^(?:=+|-+) *$')
+
+    def __init__(self, *args, **kws):
+        super(SetextHeading, self).__init__(*args, **kws)
+        self.level = 0
+        self.lines = []
+
+    def _get_content(self):
+        return str(self.level) + ': ' + '|'.join(self.lines)
+
+    def can_strip(self, parser):
+        return Block.NO
+
+    @staticmethod
+    def try_parsing(parser):
+        line = parser.line
+        container = parser.last_matched_container
+        if line.indented or container.name != 'paragraph':
+            return None
+
+        match = SetextHeading.re_setext_heading_line.match(line.after_strip)
+        if match is None:
+            return None
+
+        # this time, container should == parser.tip
+
+        heading = Block.make_block('setext-heading', line.line_num, line.next_non_space)
+        heading.level = 1 if match.group(0)[0] == '=' else 2
+        paragraph = parser.unlink_tail()
+        heading.lines = paragraph.lines
+        return heading
 
 class List(Block):
     """A container list block"""
@@ -459,7 +495,8 @@ class ListItem(Block):
 
         ret = None
         # add outer list if needed
-        if parser.tip.name != 'list' or parser.tip.meta != meta:
+        container = parser.last_matched_container
+        if container.name != 'list' or container.meta != meta:
             list_block = Block.make_block('list', parser.line.line_num, parser.line.next_non_space)
             list_block.meta = meta
             ret = list_block
@@ -565,6 +602,13 @@ class Parser(object):
         self.tip.append_child(block)
         self.tip = block.tail_child
 
+    def unlink_tail(self):
+        ret = self.tip
+        parent = self.tip.parent
+        parent.unlink_last()
+        self.tip = parent.tail_child
+        return ret
+
     def parse_line(self, line):
         """Analyze a line of text and update the AST accordingly"""
 
@@ -603,7 +647,6 @@ class Parser(object):
         # Now the line is striped, parse it as a normal unindented line
 
         if self.tip.name == 'paragraph' or self.tip.name == 'fence':
-            self.oldtip = container
             return self.tip.consume(self)
         elif ret == Block.YES:
             # the inner most block(leaf block) can consume this line
@@ -645,4 +688,11 @@ x.parse_line('   2. b')
 x.parse_line('       ')
 x.parse_line('      3. c')
 x.parse_line('4. d')
+x.parse_line('       ')
+x.parse_line('First heading')
+x.parse_line('====')
+x.parse_line('Second Heading')
+x.parse_line('---')
+x.parse_line('aaaaaaa')
 print(x.doc)
+
