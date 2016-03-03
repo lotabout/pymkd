@@ -618,6 +618,29 @@ class CodeBlock(Block):
     def consume(self, parser):
         self.lines.append(parser.line.clean_line)
 
+class ThematicBreak(Block):
+    """Thematic Break"""
+    name = 'thematic-break'
+    type = 'leaf'
+
+    re_thematic_break = re.compile(r'^(?:(?:\* *){3,}|(?:_ *){3,}|(?:- *){3,}) *$')
+    def __init__(self, *args, **kws):
+        super(ThematicBreak, self).__init__(*args, **kws)
+
+    def can_strip(self, parser):
+        return Block.NO
+
+    @staticmethod
+    def try_parsing(parser):
+        line = parser.line
+        if line.indented:
+            return None
+        match = ThematicBreak.re_thematic_break.match(line.after_strip)
+        if match is None:
+            return match
+        thematicbreak = Block.make_block('thematic-break', line.line_num, line.next_non_space)
+        return thematicbreak
+
 class BlockQuote(Block):
     """Block Quote"""
     name = 'block-quote'
@@ -848,6 +871,8 @@ x.parse_line('1. a')
 x.parse_line('')
 x.parse_line('       x')
 x.parse_line('   c')
+x.parse_line('   ')
+x.parse_line('   > ---')
 #x.parse_line('1. > 1. a')
 #x.parse_line('bbb')
 #x.parse_line('   >')
