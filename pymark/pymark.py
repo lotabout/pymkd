@@ -9,6 +9,7 @@ CODE_INDENT = 4
 
 C_SPACE = ' '
 C_TAB = '\t'
+C_GREATERTHAN = '>'
 
 #==============================================================================
 # Helpers
@@ -431,6 +432,44 @@ class AtxHeading(Block):
 
         return heading
 
+class BlockQuote(Block):
+    """Block Quote"""
+    name = 'block-quote'
+    type = 'container'
+
+    def __init__(self, *args, **kws):
+        super(BlockQuote, self).__init__(*args, **kws)
+
+    def can_contain(self, block):
+        return block.name != 'list-item'
+
+    def can_strip(self, parser):
+        line = parser.line
+        if line.indented or line.get_char(line.next_non_space) != C_GREATERTHAN:
+            return Block.NO
+
+        line.advance_next_non_space()
+        line.advance_offset(1)
+        if is_space_or_tab(line.peek()):
+            line.advance_offset(1, True)
+        return Block.YES
+
+    @staticmethod
+    def try_parsing(parser):
+        line = parser.line
+        if line.indented or line.get_char(line.next_non_space) != C_GREATERTHAN:
+            return None
+
+        line.advance_next_non_space()
+        line.advance_offset(1)
+
+        # optional following space
+        if is_space_or_tab(line.peek()):
+            line.advance_offset(1, True)
+
+        blockquote = Block.make_block('block-quote', line.line_num, line.next_non_space)
+        return blockquote
+
 class List(Block):
     """A container list block"""
 
@@ -722,6 +761,15 @@ class Parser(object):
             return block
 
 x = Parser()
+
+x.parse_line('1. > 1. a')
+x.parse_line('bbb')
+x.parse_line('   >')
+x.parse_line('   > 1. b')
+x.parse_line('   >c')
+x.parse_line('> aaa')
+x.parse_line('c')
+x.parse_line('> bbb')
 x.parse_line('## ATX Level 2 Heading')
 x.parse_line('1. a')
 x.parse_line('   # a')
