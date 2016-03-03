@@ -48,7 +48,7 @@ class Line(object):
         self.next_non_space = self.offset + len(indent)
         self.indent = len(indent.replace('\t', '    '))
         self.next_non_space_col = self.column + self.indent
-        self.indented = self.indent > CODE_INDENT
+        self.indented = self.indent >= CODE_INDENT
 
     def advance_next_non_space(self):
         """Actually move the cursor of current line to next none space character"""
@@ -195,7 +195,7 @@ class Parser(object):
 
         # Now the line is striped, parse it as a normal unindented line
 
-        if self.tip.name == 'paragraph' or self.tip.name == 'fence':
+        if self.tip.name == 'paragraph':
             return self.tip.consume(self)
         elif ret == Block.YES:
             # the inner most block(leaf block) can consume this line
@@ -542,6 +542,82 @@ class AtxHeading(Block):
 
         return heading
 
+class CodeBlock(Block):
+    """Code Block"""
+    name = 'code-block'
+    type = 'leaf'
+
+    re_open_fence = re.compile(r'`{3,}(?!.*`)|^~{3,}(?!.*~)')
+    re_closing_fence = re.compile(r'^(?:`{3,}|~{3,})(?= *$)')
+
+    def __init__(self, *args, **kws):
+        super(CodeBlock, self).__init__(*args, **kws)
+        self.lines = []
+        self._is_fence = False
+        self._fence_length = 0
+        self._fence_char = None
+        self._fence_offset = 0
+        self._fence_option = ''
+
+    def _get_content(self):
+        return str(self._fence_char) + ': ' + self._fence_option + '>' + '|'.join(self.lines)
+
+    def can_strip(self, parser):
+        line = parser.line
+        if self._is_fence:
+            # fenced code block
+            match = (line.indent <= 3 and line.get_char(line.next_non_space) == self._fence_char
+                    and CodeBlock.re_closing_fence.match(line.after_strip))
+            if match and len(match.group(0)) >= self._fence_length:
+                parser.close(self)
+                return Block.CONSUMED
+            else:
+                # skip optional spaces of fence offset
+                for i in range(self._fence_offset):
+                    if not is_space_or_tab(line.peek()):
+                        break
+                    line.advance_offset(1, True)
+        else:
+            # indented code block
+            if line.indent >= CODE_INDENT:
+                line.advance_offset(CODE_INDENT, True)
+            elif line.blank:
+                line.advance_next_non_space()
+            else:
+                return Block.NO
+        return Block.YES
+
+    @staticmethod
+    def try_parsing(parser):
+        line = parser.line
+        if line.indented:
+            # try indented code block
+            if parser.tip.name == 'paragraph' or line.blank:
+                # counted as a lazy line
+                return None
+
+            line.advance_offset(CODE_INDENT, True)
+            codeblock = Block.make_block('code-block', line.line_num, line.next_non_space)
+            codeblock.lines.append(line.clean_line)
+            return codeblock
+        else:
+            # try fenced code block
+            match = CodeBlock.re_open_fence.match(line.after_strip)
+            if not match:
+                return None
+            codeblock = Block.make_block('code-block', line.line_num, line.next_non_space)
+            codeblock._is_fence = True
+            codeblock._fence_length = len(match.group(0))
+            codeblock._fence_char = match.group(0)[0]
+            codeblock._fence_offset = line.indent
+            line.advance_next_non_space()
+            line.advance_offset(codeblock._fence_length)
+            codeblock._fence_option = line.clean_line
+            return codeblock
+
+    def consume(self, parser):
+        self.lines.append(parser.line.clean_line)
+
 class BlockQuote(Block):
     """Block Quote"""
     name = 'block-quote'
@@ -676,6 +752,11 @@ class ListItem(Block):
     def can_contain(self, block):
         return block.type != 'list-item'
 
+    def consume(self, parser):
+        block = parser.parse_rest()
+        if block is not None:
+            parser.add_child(block)
+
     @staticmethod
     def try_parsing(parser):
         if parser.line.indented and parser.tip.name != 'list':
@@ -763,31 +844,35 @@ class ListItem(Block):
 
 x = Parser()
 
-x.parse_line('1. > 1. a')
-x.parse_line('bbb')
-x.parse_line('   >')
-x.parse_line('   > 1. b')
-x.parse_line('   >c')
-x.parse_line('> aaa')
-x.parse_line('c')
-x.parse_line('> bbb')
-x.parse_line('## ATX Level 2 Heading')
 x.parse_line('1. a')
-x.parse_line('   # a')
-x.parse_line('   b')
-x.parse_line('a')
 x.parse_line('')
-x.parse_line('')
-x.parse_line('   b')
-x.parse_line('   2. b')
-x.parse_line('       ')
-x.parse_line('      3. c')
-x.parse_line('4. d')
-x.parse_line('       ')
-x.parse_line('First heading')
-x.parse_line('====')
-x.parse_line('Second Heading')
-x.parse_line('---')
-x.parse_line('aaaaaaa')
+x.parse_line('       x')
+x.parse_line('   c')
+#x.parse_line('1. > 1. a')
+#x.parse_line('bbb')
+#x.parse_line('   >')
+#x.parse_line('   > 1. b')
+#x.parse_line('   >c')
+#x.parse_line('> aaa')
+#x.parse_line('c')
+#x.parse_line('> bbb')
+#x.parse_line('## ATX Level 2 Heading')
+#x.parse_line('1. a')
+#x.parse_line('   # a')
+#x.parse_line('   b')
+#x.parse_line('a')
+#x.parse_line('')
+#x.parse_line('')
+#x.parse_line('   b')
+#x.parse_line('   2. b')
+#x.parse_line('       ')
+#x.parse_line('      3. c')
+#x.parse_line('4. d')
+#x.parse_line('       ')
+#x.parse_line('First heading')
+#x.parse_line('====')
+#x.parse_line('Second Heading')
+#x.parse_line('---')
+#x.parse_line('aaaaaaa')
 print(x.doc)
 
