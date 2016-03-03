@@ -324,6 +324,34 @@ class Paragraph(Block):
             parser.tip = parser.oldtip
             parser.add_child(block)
 
+class Blank(Block):
+    """A paragraph"""
+
+    name = 'blank'
+    type = 'leaf'
+    precendence = -2
+    def __init__(self, *args, **kws):
+        super(Blank, self).__init__(*args, **kws)
+
+    def can_strip(self, parser):
+        return Block.YES if parser.line.blank else Block.NO
+
+    def _get_content(self):
+        return 'Blank'
+
+    @staticmethod
+    def try_parsing(parser):
+        line = parser.line
+
+        if not line.blank:
+            return None
+
+        blank = Block.make_block('blank', line.line_num, line.next_non_space)
+        return blank
+
+    def consume(self, parser):
+        pass
+
 class List(Block):
     """A container list block"""
 
@@ -610,7 +638,11 @@ class Parser(object):
 x = Parser()
 x.parse_line('1. a')
 x.parse_line('a')
+x.parse_line('')
+x.parse_line('')
+x.parse_line('   b')
 x.parse_line('   2. b')
+x.parse_line('       ')
 x.parse_line('      3. c')
 x.parse_line('4. d')
 print(x.doc)
