@@ -388,6 +388,49 @@ class SetextHeading(Block):
         heading.lines = paragraph.lines
         return heading
 
+class AtxHeading(Block):
+    """ATX Heading"""
+    name = 'atx-heading'
+    type = 'leaf'
+
+    re_atx_heading_line = re.compile(r'^#{1,6}(?: +|$)')
+    re_trail_hash = re.compile(r' +# *$')
+
+    def __init__(self, *args, **kws):
+        super(AtxHeading, self).__init__(*args, **kws)
+        self.level = 0
+        self.lines = []
+
+    def _get_content(self):
+        return str(self.level) + ': ' + '|'.join(self.lines)
+
+    def can_strip(self, parser):
+        return Block.NO
+
+    @staticmethod
+    def try_parsing(parser):
+        line = parser.line
+        container = parser.last_matched_container
+        if line.indented:
+            return None
+
+        match = AtxHeading.re_atx_heading_line.match(line.after_strip)
+        if match is None:
+            return None
+
+        # this time, container should == parser.tip
+
+        line.advance_next_non_space()
+        line.advance_offset(len(match.group(0)))
+
+        heading = Block.make_block('atx-heading', line.line_num, line.next_non_space)
+        heading.level = len(match.group(0).strip())
+
+        # remove trailing ###s:
+        heading.lines.append(AtxHeading.re_trail_hash.sub('', line.after_strip))
+
+        return heading
+
 class List(Block):
     """A container list block"""
 
@@ -679,7 +722,10 @@ class Parser(object):
             return block
 
 x = Parser()
+x.parse_line('## ATX Level 2 Heading')
 x.parse_line('1. a')
+x.parse_line('   # a')
+x.parse_line('   b')
 x.parse_line('a')
 x.parse_line('')
 x.parse_line('')
