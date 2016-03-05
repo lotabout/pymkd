@@ -864,6 +864,42 @@ class ListItem(Block):
     def _get_content(self):
         return str(self.meta)
 
+#==============================================================================
+# HTML Block
+
+try:
+    from HTMLParser import HTMLParser
+except:
+    from html.parser import HTMLParser
+
+class HTMLBlockParser(HTMLParser):
+    def __init__(self):
+        self.first_tag = None
+        self.tag_num = -1
+    def handle_starttag(self, tag, attrs):
+        if self.first_tag is None:
+            self.first_tag = tag
+        if tag == self.first_tag:
+            self.tag_num += 1
+    def handle_endtag(self, tag):
+        if tag == self.first_tag:
+            self.tag_num -= 1
+    def handle_comment(self, data):
+        self._set_done()
+    def handle_decl(self, data):
+        self._set_done()
+    def handle_pi(self, data):
+        self._set_done()
+    def unknown_decl(self, data):
+        self._set_done()
+    def _set_done(self):
+        if self.first_tag is None:
+            self.tag_num = -9999 # negtive number will be OK
+    @property
+    def done(self):
+        return self.tag_num < 0
+
+
 
 x = Parser()
 
@@ -873,31 +909,31 @@ x.parse_line('       x')
 x.parse_line('   c')
 x.parse_line('   ')
 x.parse_line('   > ---')
-#x.parse_line('1. > 1. a')
-#x.parse_line('bbb')
-#x.parse_line('   >')
-#x.parse_line('   > 1. b')
-#x.parse_line('   >c')
-#x.parse_line('> aaa')
-#x.parse_line('c')
-#x.parse_line('> bbb')
-#x.parse_line('## ATX Level 2 Heading')
-#x.parse_line('1. a')
-#x.parse_line('   # a')
-#x.parse_line('   b')
-#x.parse_line('a')
-#x.parse_line('')
-#x.parse_line('')
-#x.parse_line('   b')
-#x.parse_line('   2. b')
-#x.parse_line('       ')
-#x.parse_line('      3. c')
-#x.parse_line('4. d')
-#x.parse_line('       ')
-#x.parse_line('First heading')
-#x.parse_line('====')
-#x.parse_line('Second Heading')
-#x.parse_line('---')
-#x.parse_line('aaaaaaa')
+x.parse_line('1. > 1. a')
+x.parse_line('bbb')
+x.parse_line('   >')
+x.parse_line('   > 1. b')
+x.parse_line('   >c')
+x.parse_line('> aaa')
+x.parse_line('c')
+x.parse_line('> bbb')
+x.parse_line('## ATX Level 2 Heading')
+x.parse_line('1. a')
+x.parse_line('   # a')
+x.parse_line('   b')
+x.parse_line('a')
+x.parse_line('')
+x.parse_line('')
+x.parse_line('   b')
+x.parse_line('   2. b')
+x.parse_line('       ')
+x.parse_line('      3. c')
+x.parse_line('4. d')
+x.parse_line('       ')
+x.parse_line('First heading')
+x.parse_line('====')
+x.parse_line('Second Heading')
+x.parse_line('---')
+x.parse_line('aaaaaaa')
 print(x.doc)
 
