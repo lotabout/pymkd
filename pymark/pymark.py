@@ -125,7 +125,7 @@ class Parser(object):
     def __init__(self):
         super(Parser, self).__init__()
         self.line_num               = 0
-        self.doc                    = Block.make_block('document', 0, 0)
+        self.doc                    = BlockFactory.make_block('document', 0, 0)
         self.last_matched_container = None
         self.tip                    = self.doc # inner most block
 
@@ -192,6 +192,7 @@ class Parser(object):
         # close blocks that are not matched
         self.all_closed = container == self.oldtip
         self.last_matched_container = container
+        self.container = container
 
         # Now the line is striped, parse it as a normal unindented line
 
@@ -211,10 +212,10 @@ class Parser(object):
         """parse rest of the line, that means it will not check indents of containing blocks"""
         pass
 
-        # use try_parsing to get the block.
+        # use parse to get the block.
         # use block's
 
-        block = Block.matched_block(self)
+        block = BlockFactory.matched_block(self)
         if block is None:
             return
 
@@ -222,7 +223,7 @@ class Parser(object):
             return block
         elif block.type == 'container':
             # the line header is already consumed
-            self.last_matched_container = block
+            self.container = block
             child = self.parse_rest()
             if child is not None:
                 block.append_tail(child)
@@ -298,33 +299,11 @@ class Block(Node):
     CONSUMED = 2
 
     name = 'block'
-    precedence = 10 # the less the later
 
     def __init__(self, *args, **kws):
         super(Block, self).__init__(*args, **kws)
         self.last_line_blank = False
-
-    @staticmethod
-    def make_block(tagtype, start_line, start_col):
-        for block in Block.__subclasses__():
-            if block.name == tagtype:
-                return block(start_line = start_line, start_col = start_col)
-        return None
-
-    @staticmethod
-    def matched_block(parser):
-        """iterate through all block trying to parse current line.
-
-        :returns: the block that consume the line, if no block matches return None.
-
-        """
-        blocks = [b for b in Block.__subclasses__() if hasattr(b, 'try_parsing')]
-
-        for b in sorted(blocks, key=lambda b: -b.precedence):
-            ret = b.try_parsing(parser)
-            if ret is not None:
-                return ret
-        return None
+        self.lines = []
 
     def can_strip(self, parser):
         """Check if the current line can be part of current block, block should be
@@ -370,7 +349,7 @@ class Block(Node):
         pass
 
     def _get_content(self):
-        return ''
+        return '|'.join(self.lines)
 
     def _repr(self, level=0):
         ret = []
@@ -382,6 +361,19 @@ class Block(Node):
     def __repr__(self):
         return self._repr()
 
+
+class BlockParser(object):
+    """Parse a line for block"""
+
+    precedence = 10 # bigger number means LESS precedence
+
+    @staticmethod
+    def parse(parser):
+        """parse line given parser and the current container, return a block if can be parsed,
+        otherwise return None"""
+        pass
+
+#------------------------------------------------------------------------------
 class Document(Block):
     """root block of a document"""
 
@@ -395,39 +387,22 @@ class Document(Block):
         # that means an `item` should be wrapped by `list`
         return block.name != 'list-item'
 
+#------------------------------------------------------------------------------
 
 class Paragraph(Block):
     """A paragraph"""
 
     name = 'paragraph'
     type = 'leaf'
-    precedence = -1
+
     def __init__(self, *args, **kws):
         super(Paragraph, self).__init__(*args, **kws)
-        self.lines = []
 
     def can_strip(self, parser):
         return Block.NO if parser.line.blank else Block.YES
 
     def close(self, parser):
         pass
-
-    def append_line(self, line):
-        self.lines.append(line)
-
-    def _get_content(self):
-        return '|'.join(self.lines)
-
-    @staticmethod
-    def try_parsing(parser):
-        line = parser.line
-
-        if line.blank:
-            return None
-
-        paragraph = Block.make_block('paragraph', line.line_num, line.next_non_space)
-        paragraph.append_line(line.clean_line)
-        return paragraph
 
     def consume(self, parser):
         block = parser.parse_rest()
@@ -438,12 +413,26 @@ class Paragraph(Block):
             parser.tip = parser.last_matched_container
             parser.add_child(block)
 
+class ParagraphParser(BlockParser):
+    precedence = -1
+
+    @staticmethod
+    def parse(parser):
+        line = parser.line
+        if line.blank:
+            return None
+
+        paragraph = BlockFactory.make_block('paragraph', line.line_num, line.next_non_space)
+        paragraph.lines.append(line.clean_line)
+        return paragraph
+
+#------------------------------------------------------------------------------
+
 class Blank(Block):
     """A paragraph"""
 
     name = 'blank'
     type = 'leaf'
-    precedence = -2
     def __init__(self, *args, **kws):
         super(Blank, self).__init__(*args, **kws)
 
@@ -453,25 +442,27 @@ class Blank(Block):
     def _get_content(self):
         return 'Blank'
 
-    @staticmethod
-    def try_parsing(parser):
-        line = parser.line
+class BlankParser(BlockParser):
+    precedence = -2
 
+    @staticmethod
+    def parse(parser):
+        line = parser.line
         if not line.blank:
             return None
 
-        blank = Block.make_block('blank', line.line_num, line.next_non_space)
+        blank = BlockFactory.make_block('blank', line.line_num, line.next_non_space)
         return blank
 
-class SetextHeading(Block):
-    """Setex Heading"""
-    name = 'setext-heading'
+#------------------------------------------------------------------------------
+
+class Heading(Block):
+    """Heading"""
+    name = 'heading'
     type = 'leaf'
 
-    re_setext_heading_line = re.compile(r'^(?:=+|-+) *$')
-
     def __init__(self, *args, **kws):
-        super(SetextHeading, self).__init__(*args, **kws)
+        super(Heading, self).__init__(*args, **kws)
         self.level = 0
         self.lines = []
 
@@ -481,52 +472,40 @@ class SetextHeading(Block):
     def can_strip(self, parser):
         return Block.NO
 
+class SetextHeadingParser(BlockParser):
+    re_setext_heading_line = re.compile(r'^(?:=+|-+) *$')
+
     @staticmethod
-    def try_parsing(parser):
+    def parse(parser):
         line = parser.line
-        container = parser.last_matched_container
+        container = parser.container
         if line.indented or container.name != 'paragraph':
             return None
 
-        match = SetextHeading.re_setext_heading_line.match(line.after_strip)
+        match = SetextHeadingParser.re_setext_heading_line.match(line.after_strip)
         if match is None:
             return None
 
         # this time, container should == parser.tip
 
-        heading = Block.make_block('setext-heading', line.line_num, line.next_non_space)
+        heading = BlockFactory.make_block('heading', line.line_num, line.next_non_space)
         heading.level = 1 if match.group(0)[0] == '=' else 2
         paragraph = parser.unlink_tail()
         heading.lines = paragraph.lines
         return heading
 
-class AtxHeading(Block):
-    """ATX Heading"""
-    name = 'atx-heading'
-    type = 'leaf'
-
+class AtxHeadingParser(BlockParser):
     re_atx_heading_line = re.compile(r'^#{1,6}(?: +|$)')
     re_trail_hash = re.compile(r' +# *$')
 
-    def __init__(self, *args, **kws):
-        super(AtxHeading, self).__init__(*args, **kws)
-        self.level = 0
-        self.lines = []
-
-    def _get_content(self):
-        return str(self.level) + ': ' + '|'.join(self.lines)
-
-    def can_strip(self, parser):
-        return Block.NO
-
     @staticmethod
-    def try_parsing(parser):
+    def parse(parser):
         line = parser.line
-        container = parser.last_matched_container
+        container = parser.container
         if line.indented:
             return None
 
-        match = AtxHeading.re_atx_heading_line.match(line.after_strip)
+        match = AtxHeadingParser.re_atx_heading_line.match(line.after_strip)
         if match is None:
             return None
 
@@ -535,21 +514,20 @@ class AtxHeading(Block):
         line.advance_next_non_space()
         line.advance_offset(len(match.group(0)))
 
-        heading = Block.make_block('atx-heading', line.line_num, line.next_non_space)
+        heading = BlockFactory.make_block('heading', line.line_num, line.next_non_space)
         heading.level = len(match.group(0).strip())
 
         # remove trailing ###s:
-        heading.lines.append(AtxHeading.re_trail_hash.sub('', line.after_strip))
+        heading.lines.append(AtxHeadingParser.re_trail_hash.sub('', line.after_strip))
 
         return heading
+
+#------------------------------------------------------------------------------
 
 class CodeBlock(Block):
     """Code Block"""
     name = 'code-block'
     type = 'leaf'
-
-    re_open_fence = re.compile(r'`{3,}(?!.*`)|^~{3,}(?!.*~)')
-    re_closing_fence = re.compile(r'^(?:`{3,}|~{3,})(?= *$)')
 
     def __init__(self, *args, **kws):
         super(CodeBlock, self).__init__(*args, **kws)
@@ -588,8 +566,15 @@ class CodeBlock(Block):
                 return Block.NO
         return Block.YES
 
+    def consume(self, parser):
+        self.lines.append(parser.line.clean_line)
+
+class CodeBlockParser(BlockParser):
+    re_open_fence = re.compile(r'`{3,}(?!.*`)|^~{3,}(?!.*~)')
+    re_closing_fence = re.compile(r'^(?:`{3,}|~{3,})(?= *$)')
+
     @staticmethod
-    def try_parsing(parser):
+    def parse(parser):
         line = parser.line
         if line.indented:
             # try indented code block
@@ -598,15 +583,15 @@ class CodeBlock(Block):
                 return None
 
             line.advance_offset(CODE_INDENT, True)
-            codeblock = Block.make_block('code-block', line.line_num, line.next_non_space)
+            codeblock = BlockFactory.make_block('code-block', line.line_num, line.next_non_space)
             codeblock.lines.append(line.clean_line)
             return codeblock
         else:
             # try fenced code block
-            match = CodeBlock.re_open_fence.match(line.after_strip)
+            match = CodeBlockParser.re_open_fence.match(line.after_strip)
             if not match:
                 return None
-            codeblock = Block.make_block('code-block', line.line_num, line.next_non_space)
+            codeblock = BlockParser.make_block('code-block', line.line_num, line.next_non_space)
             codeblock._is_fence = True
             codeblock._fence_length = len(match.group(0))
             codeblock._fence_char = match.group(0)[0]
@@ -616,31 +601,34 @@ class CodeBlock(Block):
             codeblock._fence_option = line.clean_line
             return codeblock
 
-    def consume(self, parser):
-        self.lines.append(parser.line.clean_line)
+#------------------------------------------------------------------------------
 
 class ThematicBreak(Block):
     """Thematic Break"""
     name = 'thematic-break'
     type = 'leaf'
 
-    re_thematic_break = re.compile(r'^(?:(?:\* *){3,}|(?:_ *){3,}|(?:- *){3,}) *$')
     def __init__(self, *args, **kws):
         super(ThematicBreak, self).__init__(*args, **kws)
 
     def can_strip(self, parser):
         return Block.NO
 
+class ThematicBreakParser(BlockParser):
+    re_thematic_break = re.compile(r'^(?:(?:\* *){3,}|(?:_ *){3,}|(?:- *){3,}) *$')
+
     @staticmethod
-    def try_parsing(parser):
+    def parse(parser):
         line = parser.line
         if line.indented:
             return None
-        match = ThematicBreak.re_thematic_break.match(line.after_strip)
+        match = ThematicBreakParser.re_thematic_break.match(line.after_strip)
         if match is None:
             return match
-        thematicbreak = Block.make_block('thematic-break', line.line_num, line.next_non_space)
+        thematicbreak = BlockFactory.make_block('thematic-break', line.line_num, line.next_non_space)
         return thematicbreak
+
+#------------------------------------------------------------------------------
 
 class BlockQuote(Block):
     """Block Quote"""
@@ -664,8 +652,9 @@ class BlockQuote(Block):
             line.advance_offset(1, True)
         return Block.YES
 
+class BlockQuoteParser(BlockParser):
     @staticmethod
-    def try_parsing(parser):
+    def parse(parser):
         line = parser.line
         if line.indented or line.get_char(line.next_non_space) != C_GREATERTHAN:
             return None
@@ -677,8 +666,10 @@ class BlockQuote(Block):
         if is_space_or_tab(line.peek()):
             line.advance_offset(1, True)
 
-        blockquote = Block.make_block('block-quote', line.line_num, line.next_non_space)
+        blockquote = BlockFactory.make_block('block-quote', line.line_num, line.next_non_space)
         return blockquote
+
+#------------------------------------------------------------------------------
 
 class List(Block):
     """A container list block"""
@@ -713,45 +704,43 @@ class List(Block):
                     break
 
 
+#------------------------------------------------------------------------------
+class Meta(object):
+    """meta info for list marks"""
+    def __init__(self):
+        self.type          = None
+        self.tight         = True
+        self.bullet_char   = None
+        self.start         = None
+        self.delimiter     = None
+        self.padding       = None
+        self.marker_offset = None
+
+    def __eq__(self, other):
+        return (self.type == other.type and
+                self.delimiter == other.delimiter and
+                self.bullet_char == other.bullet_char)
+    def __ne__(self, other):
+        return not self == other
+
+    def __str__(self):
+        if self.type == 'bullet':
+            return self.bullet_char
+        elif self.type == 'ordered':
+            return str(self.start) + self.delimiter
+        else:
+            return ''
+    def __repr__(self):
+        return str(self)
 
 class ListItem(Block):
     """A single list item"""
 
     name = 'list-item'
     type = 'container'
-    re_bullet_list_marker = re.compile(r'^([*+-])')
-    re_ordered_list_marker = re.compile(r'^(\d{1,9})([.)])')
 
     def __init__(self, *args, **kw):
         super(ListItem, self).__init__(*args, **kw)
-
-    class Meta(object):
-        """meta info for list marks"""
-        def __init__(self):
-            self.type          = None
-            self.tight         = True
-            self.bullet_char   = None
-            self.start         = None
-            self.delimiter     = None
-            self.padding       = None
-            self.marker_offset = None
-
-        def __eq__(self, other):
-            return (self.type == other.type and
-                    self.delimiter == other.delimiter and
-                    self.bullet_char == other.bullet_char)
-        def __ne__(self, other):
-            return not self == other
-
-        def __str__(self):
-            if self.type == 'bullet':
-                return self.bullet_char
-            elif self.type == 'ordered':
-                return str(self.start) + self.delimiter
-            else:
-                return ''
-        def __repr__(self):
-            return str(self)
 
     def can_strip(self, parser):
         line = parser.line
@@ -781,25 +770,32 @@ class ListItem(Block):
         if block is not None:
             parser.add_child(block)
 
+    def _get_content(self):
+        return str(self.meta)
+
+class ListParser(BlockParser):
+    re_bullet_list_marker = re.compile(r'^([*+-])')
+    re_ordered_list_marker = re.compile(r'^(\d{1,9})([.)])')
+
     @staticmethod
-    def try_parsing(parser):
+    def parse(parser):
         if parser.line.indented and parser.tip.name != 'list':
             return None
 
-        meta = ListItem.parse_list_marker(parser)
+        meta = ListParser.parse_list_marker(parser)
         if not meta:
             return None
 
         ret = None
         # add outer list if needed
-        container = parser.last_matched_container
+        container = parser.container
         if container.name != 'list' or container.meta != meta:
-            list_block = Block.make_block('list', parser.line.line_num, parser.line.next_non_space)
+            list_block = BlockFactory.make_block('list', parser.line.line_num, parser.line.next_non_space)
             list_block.meta = meta
             ret = list_block
 
         # add the list item
-        list_item = Block.make_block('list-item', parser.line.line_num, parser.line.next_non_space)
+        list_item = BlockFactory.make_block('list-item', parser.line.line_num, parser.line.next_non_space)
         list_item.meta = meta
 
         if ret is not None:
@@ -812,16 +808,16 @@ class ListItem(Block):
     @staticmethod
     def parse_list_marker(parser):
         line = parser.line
-        meta = ListItem.Meta()
+        meta = Meta()
         meta.marker_offset = line.indent
 
-        m = ListItem.re_bullet_list_marker.match(line.after_strip)
+        m = ListParser.re_bullet_list_marker.match(line.after_strip)
         if m is not None:
             meta.type = 'bullet'
             meta.bullet_char = m.group(1)
             match = m
 
-        m = ListItem.re_ordered_list_marker.match(line.after_strip)
+        m = ListParser.re_ordered_list_marker.match(line.after_strip)
         if m is not None:
             meta.type = 'ordered'
             meta.start = int(m.group(1))
@@ -862,10 +858,7 @@ class ListItem(Block):
             meta.padding = len(match.group(0)) + spaces_after_marker
         return meta
 
-    def _get_content(self):
-        return str(self.meta)
-
-#==============================================================================
+#------------------------------------------------------------------------------
 # HTML Block
 
 try:
@@ -873,7 +866,7 @@ try:
 except:
     from html.parser import HTMLParser
 
-class HTMLBlockParser(HTMLParser):
+class HTMLContentParser(HTMLParser):
     def __init__(self):
         HTMLParser.__init__(self)
         self.first_tag = None
@@ -910,36 +903,11 @@ class HTMLBlockParser(HTMLParser):
 class HTMLBlock(Block):
     """Block level HTML"""
 
-    re_html_block_start = re.compile(r'^<(!--|\?|![A-Z]|!\[CDATA\[|[a-zA-Z])')
-
     name = 'html-block'
     type = 'leaf'
-    precedence = 1
 
     def __init__(self, *args, **kws):
         super(HTMLBlock, self).__init__(*args, **kws)
-        self.lines = []
-
-    @staticmethod
-    def try_parsing(parser):
-        line = parser.line
-        if line.indent > 0:
-            # we require HTML block to have no indent at all(0 space)
-            return None
-
-        match = HTMLBlock.re_html_block_start.match(line.after_strip)
-        if match is None:
-            return None
-
-        # now we have an HTML start tag
-        html_parser = HTMLBlockParser()
-        html_parser.feed(line.after_strip)
-
-        html_block = Block.make_block('html-block', parser.line.line_num, parser.line.next_non_space)
-        html_block.html_parser = html_parser
-        html_block.lines.append(line.after_strip)
-
-        return html_block
 
     def can_strip(self, parser):
         if self.html_parser.done:
@@ -954,11 +922,67 @@ class HTMLBlock(Block):
     def _get_content(self):
         return '|'.join(self.lines)
 
+
+class HTMLBlockParser(BlockParser):
+    precedence = 1
+
+    re_html_block_start = re.compile(r'^<(!--|\?|![A-Z]|!\[CDATA\[|[a-zA-Z])')
+
+    @staticmethod
+    def parse(parser):
+        line = parser.line
+        if line.indent > 0:
+            # we require HTML block to have no indent at all(0 space)
+            return None
+
+        match = HTMLBlockParser.re_html_block_start.match(line.after_strip)
+        if match is None:
+            return None
+
+        # now we have an HTML start tag
+        html_parser = HTMLContentParser()
+        html_parser.feed(line.after_strip)
+
+        html_block = BlockFactory.make_block('html-block', parser.line.line_num, parser.line.next_non_space)
+        html_block.html_parser = html_parser
+        html_block.lines.append(line.after_strip)
+
+        return html_block
+
+#==============================================================================
+
+class BlockFactory(object):
+    """docstring for BlockFactory"""
+
+    blocks = {b.name: b for b in Block.__subclasses__()}
+    block_parsers = sorted(BlockParser.__subclasses__(), key=lambda b: -b.precedence)
+
+    @staticmethod
+    def make_block(tagtype, start_line, start_col):
+        try:
+            block = BlockFactory.blocks[tagtype]
+            return block(start_line = start_line, start_col = start_col)
+        except:
+            return None
+
+    @staticmethod
+    def matched_block(parser):
+        """iterate through all block trying to parse current line.
+
+        :returns: the block that consume the line, if no block matches return None.
+
+        """
+        for b in BlockFactory.block_parsers:
+            ret = b.parse(parser)
+            if ret is not None:
+                return ret
+        return None
+
 x = Parser()
 
-#x.parse_line('1. <div')
-#x.parse_line('     >aaa')
-#x.parse_line('2.   >aaa')
+x.parse_line('1. <div')
+x.parse_line('     >aaa')
+x.parse_line('2.   >aaa')
 
 x.parse_line('1. a')
 x.parse_line('')
