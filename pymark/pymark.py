@@ -222,6 +222,7 @@ class Parser(object):
             return block
         elif block.type == 'container':
             # the line header is already consumed
+            self.last_matched_container = block
             child = self.parse_rest()
             if child is not None:
                 block.append_tail(child)
@@ -955,21 +956,21 @@ class HTMLBlock(Block):
 
 x = Parser()
 
-x.parse_line('1. <div')
-x.parse_line('     >aaa')
-x.parse_line('2.   >aaa')
+#x.parse_line('1. <div')
+#x.parse_line('     >aaa')
+#x.parse_line('2.   >aaa')
 
-#x.parse_line('1. a')
-#x.parse_line('')
-#x.parse_line('       x')
-#x.parse_line('   c')
-#x.parse_line('   ')
-#x.parse_line('   > ---')
-#x.parse_line('1. > 1. a')
-#x.parse_line('bbb')
-#x.parse_line('   >')
-#x.parse_line('   > 1. b')
-#x.parse_line('   >c')
+x.parse_line('1. a')
+x.parse_line('')
+x.parse_line('       x')
+x.parse_line('   c')
+x.parse_line('   ')
+x.parse_line('   > ---')
+x.parse_line('1. > 1. a')
+x.parse_line('bbb')
+x.parse_line('   >')
+x.parse_line('   > 1. b')
+x.parse_line('   >c')
 #x.parse_line('> aaa')
 #x.parse_line('c')
 #x.parse_line('> bbb')
