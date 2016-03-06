@@ -297,7 +297,7 @@ class Block(Node):
     CONSUMED = 2
 
     name = 'block'
-    precendence = 0 # the less the later
+    precedence = 10 # the less the later
 
     def __init__(self, *args, **kws):
         super(Block, self).__init__(*args, **kws)
@@ -319,7 +319,7 @@ class Block(Node):
         """
         blocks = [b for b in Block.__subclasses__() if hasattr(b, 'try_parsing')]
 
-        for b in sorted(blocks, key=lambda b: -b.precendence):
+        for b in sorted(blocks, key=lambda b: -b.precedence):
             ret = b.try_parsing(parser)
             if ret is not None:
                 return ret
@@ -400,7 +400,7 @@ class Paragraph(Block):
 
     name = 'paragraph'
     type = 'leaf'
-    precendence = -1
+    precedence = -1
     def __init__(self, *args, **kws):
         super(Paragraph, self).__init__(*args, **kws)
         self.lines = []
@@ -442,7 +442,7 @@ class Blank(Block):
 
     name = 'blank'
     type = 'leaf'
-    precendence = -2
+    precedence = -2
     def __init__(self, *args, **kws):
         super(Blank, self).__init__(*args, **kws)
 
@@ -874,13 +874,20 @@ except:
 
 class HTMLBlockParser(HTMLParser):
     def __init__(self):
+        HTMLParser.__init__(self)
         self.first_tag = None
-        self.tag_num = -1
+        self.tag_num = 1 # once initialized, it is an open-tag
     def handle_starttag(self, tag, attrs):
-        if self.first_tag is None:
-            self.first_tag = tag
+        # increase first and then initialize first_tag might seems to be wired
+        # but we need this, becuase an open tag might be in several lines
+        # and before consuming later lines, starttag is not triggered
+        # and once parser is initialized, tag_num is set to 1 already
         if tag == self.first_tag:
             self.tag_num += 1
+
+        if self.first_tag is None:
+            self.first_tag = tag
+
     def handle_endtag(self, tag):
         if tag == self.first_tag:
             self.tag_num -= 1
@@ -899,41 +906,90 @@ class HTMLBlockParser(HTMLParser):
     def done(self):
         return self.tag_num < 0
 
+class HTMLBlock(Block):
+    """Block level HTML"""
 
+    re_html_block_start = re.compile(r'^<(!--|\?|![A-Z]|!\[CDATA\[|[a-zA-Z])')
+
+    name = 'html-block'
+    type = 'leaf'
+    precedence = 1
+
+    def __init__(self, *args, **kws):
+        super(HTMLBlock, self).__init__(*args, **kws)
+        self.lines = []
+
+    @staticmethod
+    def try_parsing(parser):
+        line = parser.line
+        if line.indent > 0:
+            # we require HTML block to have no indent at all(0 space)
+            return None
+
+        match = HTMLBlock.re_html_block_start.match(line.after_strip)
+        if match is None:
+            return None
+
+        # now we have an HTML start tag
+        html_parser = HTMLBlockParser()
+        html_parser.feed(line.after_strip)
+
+        html_block = Block.make_block('html-block', parser.line.line_num, parser.line.next_non_space)
+        html_block.html_parser = html_parser
+        html_block.lines.append(line.after_strip)
+
+        return html_block
+
+    def can_strip(self, parser):
+        if self.html_parser.done:
+            return Block.NO
+
+        # consume another line
+        line = parser.line
+        self.html_parser.feed(line.after_strip)
+        self.lines.append(line.after_strip)
+        return Block.CONSUMED
+
+    def _get_content(self):
+        return '|'.join(self.lines)
 
 x = Parser()
 
-x.parse_line('1. a')
-x.parse_line('')
-x.parse_line('       x')
-x.parse_line('   c')
-x.parse_line('   ')
-x.parse_line('   > ---')
-x.parse_line('1. > 1. a')
-x.parse_line('bbb')
-x.parse_line('   >')
-x.parse_line('   > 1. b')
-x.parse_line('   >c')
-x.parse_line('> aaa')
-x.parse_line('c')
-x.parse_line('> bbb')
-x.parse_line('## ATX Level 2 Heading')
-x.parse_line('1. a')
-x.parse_line('   # a')
-x.parse_line('   b')
-x.parse_line('a')
-x.parse_line('')
-x.parse_line('')
-x.parse_line('   b')
-x.parse_line('   2. b')
-x.parse_line('       ')
-x.parse_line('      3. c')
-x.parse_line('4. d')
-x.parse_line('       ')
-x.parse_line('First heading')
-x.parse_line('====')
-x.parse_line('Second Heading')
-x.parse_line('---')
-x.parse_line('aaaaaaa')
+x.parse_line('1. <div')
+x.parse_line('     >aaa')
+x.parse_line('2.   >aaa')
+
+#x.parse_line('1. a')
+#x.parse_line('')
+#x.parse_line('       x')
+#x.parse_line('   c')
+#x.parse_line('   ')
+#x.parse_line('   > ---')
+#x.parse_line('1. > 1. a')
+#x.parse_line('bbb')
+#x.parse_line('   >')
+#x.parse_line('   > 1. b')
+#x.parse_line('   >c')
+#x.parse_line('> aaa')
+#x.parse_line('c')
+#x.parse_line('> bbb')
+#x.parse_line('## ATX Level 2 Heading')
+#x.parse_line('1. a')
+#x.parse_line('   # a')
+#x.parse_line('   b')
+#x.parse_line('a')
+#x.parse_line('')
+#x.parse_line('')
+#x.parse_line('   b')
+#x.parse_line('   2. b')
+#x.parse_line('       ')
+#x.parse_line('      3. c')
+#x.parse_line('4. d')
+#x.parse_line('       ')
+#x.parse_line('First heading')
+#x.parse_line('====')
+#x.parse_line('Second Heading')
+#x.parse_line('---')
+#x.parse_line('aaaaaaa')
 print(x.doc)
 
