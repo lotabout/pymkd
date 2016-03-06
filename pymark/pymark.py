@@ -227,6 +227,22 @@ class Parser(object):
                 block.append_tail(child)
             return block
 
+    def parse_inlines(self):
+        """Parse the generated AST for inline elements"""
+        pass
+
+    def parse(self, input):
+        """parse the input string and return the AST"""
+        for line in input.split('\n'):
+            self.parse_line(line)
+
+        self.last_matched_container = self.doc
+        self.close_unmatched()
+        self.parse_inlines()
+        return self.doc
+
+
+
 #==============================================================================
 # Node & Block
 
@@ -977,45 +993,46 @@ class BlockFactory(object):
         return None
 
 x = Parser()
+string = """
+1.
+2. abc
+> x
+1. <div
+     >aaa
+2.   >aaa
 
-x.parse_line('1. ')
-x.parse_line('2. abc')
-x.parse_line('> x')
-#x.parse_line('1. <div')
-#x.parse_line('     >aaa')
-#x.parse_line('2.   >aaa')
-#
-#x.parse_line('1. a')
-#x.parse_line('')
-#x.parse_line('       x')
-#x.parse_line('   c')
-#x.parse_line('   ')
-#x.parse_line('   > ---')
-#x.parse_line('1. > 1. a')
-#x.parse_line('bbb')
-#x.parse_line('   >')
-#x.parse_line('   > 1. b')
-#x.parse_line('   >c')
-#x.parse_line('> aaa')
-#x.parse_line('c')
-#x.parse_line('> bbb')
-#x.parse_line('## ATX Level 2 Heading')
-#x.parse_line('1. a')
-#x.parse_line('   # a')
-#x.parse_line('   b')
-#x.parse_line('a')
-#x.parse_line('')
-#x.parse_line('')
-#x.parse_line('   b')
-#x.parse_line('   2. b')
-#x.parse_line('       ')
-#x.parse_line('      3. c')
-#x.parse_line('4. d')
-#x.parse_line('       ')
-#x.parse_line('First heading')
-#x.parse_line('====')
-#x.parse_line('Second Heading')
-#x.parse_line('---')
-#x.parse_line('aaaaaaa')
+1. a
+
+       x
+   c
+
+   > ---
+1. > 1. a
+bbb
+   >
+   > 1. b
+   >c
+> aaa
+c
+> bbb
+## ATX Level 2 Heading
+1. a
+   # a
+   b
+a
+
+
+   b
+   2. b
+
+      3. c
+4. d
+
+First heading
+====
+Second Heading
+---
+aaaaaaa"""
+x.parse(string)
 print(x.doc)
 
