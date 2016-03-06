@@ -137,12 +137,10 @@ class Parser(object):
         self.tip = block.parent
 
     def close_unmatched(self):
-        if not self.all_closed:
-            while self.oldtip != self.last_matched_container:
-                parent = self.oldtip.parent
-                self.close(self.oldtip)
-                self.oldtip = parent
-            self.all_closed = True
+        while self.oldtip != self.last_matched_container:
+            parent = self.oldtip.parent
+            self.close(self.oldtip)
+            self.oldtip = parent
 
     def add_child(self, block):
         while not self.tip.can_contain(block):
@@ -189,8 +187,8 @@ class Parser(object):
             else:
                 raise Exception('can_strip returns unknown value')
 
-        # close blocks that are not matched
-        self.all_closed = container == self.oldtip
+        # last_matched_container is used for closing unmatched blocks
+        # while container is used for parsing, which may be changed during parse_rest()
         self.last_matched_container = container
         self.container = container
 
@@ -330,20 +328,6 @@ class Block(Node):
         """
         return False
 
-    def ends_with_blank_line(self):
-        """Check if current block ends with blank line, descending if needed for lists
-
-        :returns: True if it ends with blank line, else False
-
-        """
-        if self.last_line_blank:
-            return True
-        elif self.name == 'list' or self.name == 'list-item':
-            last_child = self.last_child
-            return last_child.last_line_blank if last_child else False
-        else:
-            return False
-
     def consume(self, parser):
         """Consume current line"""
         pass
@@ -402,6 +386,8 @@ class Paragraph(Block):
         return Block.NO if parser.line.blank else Block.YES
 
     def close(self, parser):
+        # try parsing the beginning as link reference definitions
+        # TODO: after finish the inline parser
         pass
 
     def consume(self, parser):
@@ -429,18 +415,23 @@ class ParagraphParser(BlockParser):
 #------------------------------------------------------------------------------
 
 class Blank(Block):
-    """A paragraph"""
+    """A blank line"""
 
     name = 'blank'
     type = 'leaf'
+
     def __init__(self, *args, **kws):
         super(Blank, self).__init__(*args, **kws)
+        self.blank_lines = 1
 
     def can_strip(self, parser):
         return Block.YES if parser.line.blank else Block.NO
 
     def _get_content(self):
-        return 'Blank'
+        return 'Blank: %d blank lines' % self.blank_lines
+
+    def consume(self, parser):
+        self.blank_lines += 1
 
 class BlankParser(BlockParser):
     precedence = -2
@@ -686,23 +677,13 @@ class List(Block):
 
     def close(self, parser):
         # set the tight status of a list
-        self.tight = True
-
         for item in self.children:
-            if item.ends_with_blank_line() and item.sibling:
+            if not item.is_tight():
                 self.tight = False
                 break
 
-            # recurse into children of list item, to see if there are spaces between them
-            # 1. aaa  <- subitem
-            #
-            #    bbb  <- subitem
-            # 2. ccc
-            for subitem in item.children:
-                if subitem.ends_with_blank_line() and subitem.sibling and item.sibling:
-                    self.tight = False
-                    break
-
+    def _get_content(self):
+        return 'is_tight: ' + str(self.tight)
 
 #------------------------------------------------------------------------------
 class Meta(object):
@@ -772,6 +753,23 @@ class ListItem(Block):
 
     def _get_content(self):
         return str(self.meta)
+
+    def is_tight(self):
+        # First case, ends with blank line and has sibling
+        last_child = self.last_child
+        last_blank = last_child and last_child.name == 'blank' and (len(self.children) > 1 or last_child.blank_lines > 1)
+        if last_blank and self.sibling:
+            return False
+
+        # recurse into children of list item, to see if there are spaces between them
+        # 1. aaa  <- subitem
+        #
+        #    bbb  <- subitem
+        # 2. ccc
+        for item in self.children:
+            if item.name == 'blank' and item.sibling:
+                return False
+        return True
 
 class ListParser(BlockParser):
     re_bullet_list_marker = re.compile(r'^([*+-])')
@@ -980,21 +978,24 @@ class BlockFactory(object):
 
 x = Parser()
 
-x.parse_line('1. <div')
-x.parse_line('     >aaa')
-x.parse_line('2.   >aaa')
-
-x.parse_line('1. a')
-x.parse_line('')
-x.parse_line('       x')
-x.parse_line('   c')
-x.parse_line('   ')
-x.parse_line('   > ---')
-x.parse_line('1. > 1. a')
-x.parse_line('bbb')
-x.parse_line('   >')
-x.parse_line('   > 1. b')
-x.parse_line('   >c')
+x.parse_line('1. ')
+x.parse_line('2. abc')
+x.parse_line('> x')
+#x.parse_line('1. <div')
+#x.parse_line('     >aaa')
+#x.parse_line('2.   >aaa')
+#
+#x.parse_line('1. a')
+#x.parse_line('')
+#x.parse_line('       x')
+#x.parse_line('   c')
+#x.parse_line('   ')
+#x.parse_line('   > ---')
+#x.parse_line('1. > 1. a')
+#x.parse_line('bbb')
+#x.parse_line('   >')
+#x.parse_line('   > 1. b')
+#x.parse_line('   >c')
 #x.parse_line('> aaa')
 #x.parse_line('c')
 #x.parse_line('> bbb')
