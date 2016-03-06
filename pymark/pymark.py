@@ -236,8 +236,9 @@ class Parser(object):
         for line in input.split('\n'):
             self.parse_line(line)
 
-        self.last_matched_container = self.doc
-        self.close_unmatched()
+        while self.tip:
+            self.close(self.tip)
+
         self.parse_inlines()
         return self.doc
 
@@ -412,7 +413,7 @@ class Paragraph(Block):
             for line in block.lines:
                 self.lines.append(line)
         else:
-            parser.tip = parser.last_matched_container
+            parser.close_unmatched()
             parser.add_child(block)
 
 class ParagraphParser(BlockParser):
@@ -772,9 +773,7 @@ class ListItem(Block):
 
     def is_tight(self):
         # First case, ends with blank line and has sibling
-        last_child = self.last_child
-        last_blank = last_child and last_child.name == 'blank' and (len(self.children) > 1 or last_child.blank_lines > 1)
-        if last_blank and self.sibling:
+        if self.sibling and ListItem._ends_with_blank_line(self):
             return False
 
         # recurse into children of list item, to see if there are spaces between them
@@ -783,9 +782,23 @@ class ListItem(Block):
         #    bbb  <- subitem
         # 2. ccc
         for item in self.children:
-            if item.name == 'blank' and item.sibling:
+            if ListItem._ends_with_blank_line(item) and item.sibling:
                 return False
         return True
+
+    @staticmethod
+    def _ends_with_blank_line(block):
+        """check if a container block ends with blank line"""
+        if block.type == 'container':
+            tail = block.tail_child
+            ret = tail and tail.name == 'blank'
+            if tail and tail.parent.name == 'list-item':
+                ret = tail.name == 'blank' and (len(block.children) > 1 or tail.blank_lines > 1)
+            return ret
+        elif block.name == 'blank':
+            return True
+        return False
+
 
 class ListParser(BlockParser):
     re_bullet_list_marker = re.compile(r'^([*+-])')
