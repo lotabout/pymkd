@@ -11,6 +11,28 @@ C_SPACE = ' '
 C_TAB = '\t'
 C_GREATERTHAN = '>'
 
+#BLOCKTAGNAME = '(?:article|header|aside|hgroup|iframe|blockquote|hr|body|li|map|button|object|canvas|ol|caption|output|col|p|colgroup|pre|dd|progress|div|section|dl|table|td|dt|tbody|embed|textarea|fieldset|tfoot|figcaption|th|figure|thead|footer|footer|tr|form|ul|h1|h2|h3|h4|h5|h6|video|script|style)'
+#UNQUOTEDVALUE = "[^\"'=<>`\\x00-\\x20]+"
+#SINGLEQUOTEDVALUE = "'[^']*'"
+#DOUBLEQUOTEDVALUE = '"[^"]*"'
+#ATTRIBUTEVALUESPEC = "(?:" + "\\s*=" + "\\s*" + ATTRIBUTEVALUE + ")"
+#OPENBLOCKTAG = "<" + BLOCKTAGNAME + ATTRIBUTE + "*" + "\\s*/?>"
+#CLOSEBLOCKTAG = "</" + BLOCKTAGNAME + "\\s*[>]"
+
+TAGNAME = '[A-Za-z][A-Za-z0-9]*'
+ATTRIBUTENAME = '[a-zA-Z_:][a-zA-Z0-9:._-]*'
+ATTRIBUTEVALUE = "(?:" + UNQUOTEDVALUE + "|" + SINGLEQUOTEDVALUE + "|" + DOUBLEQUOTEDVALUE + ")"
+ATTRIBUTE = "(?:" + "\\s+" + ATTRIBUTENAME + ATTRIBUTEVALUESPEC + "?)"
+OPENTAG = "<" + TAGNAME + ATTRIBUTE + "*" + "\\s*/?>"
+
+CLOSETAG = "</" + TAGNAME + "\\s*[>]"
+HTMLCOMMENT = "<!--([^-]+|[-][^-]+)*-->"
+PROCESSINGINSTRUCTION = "[<][?].*?[?][>]"
+DECLARATION = "<![A-Z]+" + "\\s+[^>]*>"
+CDATA = "<!\\[CDATA\\[([^\\]]+|\\][^\\]]|\\]\\][^>])*\\]\\]>"
+
+HTMLTAG = "(?:" + OPENTAG + "|" + CLOSETAG + "|" + HTMLCOMMENT + "|" + PROCESSINGINSTRUCTION + "|" + DECLARATION + "|" + CDATA + ")"
+
 #==============================================================================
 # Helpers
 
@@ -373,6 +395,13 @@ class BlockParser(object):
         """parse line given parser and the current container, return a block if can be parsed,
         otherwise return None"""
         pass
+
+class InlineNode(Node):
+    """Nodes for inline"""
+    def __init__(self, name, literal = ""):
+        super(InlineNode, self).__init__()
+        self.name = name
+        self._literal = literal
 
 #------------------------------------------------------------------------------
 class Document(Block):
@@ -1005,6 +1034,192 @@ class BlockFactory(object):
                 return ret
         return None
 
+#==============================================================================
+# Inline Parser
+
+class InlineParser(object):
+    """Inline Parser"""
+    compiled_re_type = type(re.compile('compiled'))
+
+    re_escapable = re.compile(r'[!"#$%&\'()*+,./:;<=>?@[\\\\\\]^_`{|}~-]')
+    re_email_autolink = re.compile(r"^<([a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*)>", re.IGNORECASE)
+    re_autolink = re.compile(r"^<[A-Za-z][A-Za-z0-9.+-]{1,31}:[^<>\x00-\x20]*>")
+    re_html_tag = re.compile('^' + HTMLTAG, re.IGNORECASE)
+
+
+    def __init__(self):
+        self.subject          = ""  # the string literal
+        self.label_nest_level = 0
+        self.pos              = 0
+        self.refmap           = {}
+
+    def match(self, regex, reCompileFlag=0):
+        """If re matches at current position in the subject, advance the position
+        in subject and return the match; otherwise return None"""
+        match = None
+
+        if isinstance(regex, InlineParser.compiled_re_type):
+            match = regex.search(self.subject[self.pos:])
+        else:
+            match = re.search(self.subject[self.pos:], flags = reCompileFlag)
+
+        if not match:
+            return None
+
+        self.pos += match.end(0)
+        return match.group()
+
+    def peek(self):
+        """Peek the next character, if no more characters left in the string
+        literal, return None"""
+        try:
+            return self.subject[self.pos]
+        except IndexError:
+            return None
+
+    def spnl(self):
+        """Parse zero or more sapce characters, including at most one newline"""
+        self.match(r"^ *(?:\n *)?")
+        return True
+
+    # The following methods corresond to the inline types
+    # If one element is parsed, add it to array: `inlines`
+    # and return the number of characters parsed.
+
+    def parse_backticks(self, inlines):
+        """Parse backticks, i.e. code spans"""
+        start_pos = self.pos
+        ticks = self.match(r'^`+')
+        if not ticks:
+            return 0
+        after_open_ticks = self.pos
+
+        match = self.match(self.match(r"`+", re.MULTILINE))
+        while match is not None:
+            if match == ticks:
+                literal = self.subject[after_open_ticks:(self.pos-len(ticks))]
+                literal = re.sub(r"[ \n]+", ' ', literal)
+                code_span = InlineNode('code')
+                code_span._literal = literal.strip()
+                inlines.append(code_span)
+                return self.pos - start_pos
+            match = self.match(self.match(r"`+", re.MULTILINE))
+
+        # code span not closed, interpret it as string
+        inlines.append(InlineNode('text', ticks))
+        self.pos = after_open_ticks
+        return self.pos - start_pos
+
+    def parse_escape(self, inlines):
+        """Parse backslash-escaped special character, adding the escaped character into
+        `inlines`"""
+        subj = self.subject
+        pos = self.pos
+        if subj[pos] == '\\':
+            node = None
+            advance_pos = 0
+
+            if (len(subj) > pos + 1) and (subj[pos+1] == '\n'):
+                node = InlineNode('hard-break')
+                advance_pos = 2
+            elif InlineParser.match(subj[pos+1:pos+2]):
+                node = InlineNode('text', subj[pos+1:pos+2])
+                advance_pos = 2
+            else:
+                node = InlineNode('text', '\\')
+                advance_pos = 1
+
+            inlines.append(node)
+            self.pos += advance_pos
+            return advance_pos
+
+        else:
+            return 0
+
+    def parse_autolink(self, inlines):
+        """ Parse an autolink (URL or email)"""
+        m_email = self.match(InlineParser.re_email_autolink)
+        m_link  = self.match(InlineParser.re_autolink)
+
+        if m_email:
+            dest = m_email[1:-1]
+            node = InlineNode('link')
+            node._destination = 'mailto:' + dest
+            node._title = ''
+            node.append_child(InlineNode('text', dest))
+            inlines.append(node)
+            return len(m_email)
+        elif m_link:
+            dest = m_link[1:-1]
+            node = InlineNode('link')
+            node._destination = dest
+            node._title = ''
+            node.append_child(InlineNode('text', dest))
+            inlines.append(node)
+            return len(m_link)
+        else:
+            return 0
+
+    def parse_html_tag(self, inlines):
+        """parse a raw HTML tag"""
+        match = self.match(InlineParser.re_html_tag)
+        if match:
+            inlines.append(InlineNode('html-inline', match))
+            return len(match)
+        else:
+            return 0
+
+    def _scanDelims(self, char):
+        """Scan a sequence of characters == char, and return information about
+        the number of delimiters and whether they are positioned such that they
+        can open and/or close emphasis or strong emphasis. A utility function for
+        strong/emph parsing"""
+        num_delims         = 0
+        first_close_delims = 0
+        char_before        = char_after = None
+        start_pos          = self.pos
+
+        char_before = '\n' if self.pos == 0 else self.subject[self.pos - 1]
+
+
+        while self.peek() == char:
+            num_delims += 1
+            self.pos += 1
+
+        char_after = self.peek()
+        char_after = char_after if char_after else '\n'
+
+        can_open = (num_delims > 0) and (num_delims <= 3) and (not re.match("\s", char_after))
+        can_close = (num_delims > 0) and (num_delims <= 3) and (not re.match("\s", char_before))
+
+        if char == "_":
+            can_open = can_open and not re.match("[a-z0-9]", char_before, re.IGNORECASE)
+            can_close = can_close and not re.match("[a-z0-9]", char_after, re.IGNORECASE)
+
+        self.pos = start_pos
+        return {"num_delims": num_delims, "can_open": can_open, "can_close": can_close }
+
+    def parse_emphasis(self, inlines):
+        """parse emphasis or strong emphasis in an efficient way with no backtracking"""
+        start_pos = self.pos
+        first_close = 0
+        char = self.peek()
+        if char != '*' and char != '_':
+            return 0
+
+        res = self._scanDelims(char)
+        num_delims = res['num_delims']
+
+        # save text before current delimiter
+        if start_pos > 0:
+            inlines.append(InlineNode('text', self.subject[self.pos-num_delims : start_pos + num_delims]))
+        else:
+            inlines.append(InlineNode('text', self.subject[self.pos-num_delims: num_delims]))
+        
+
+
+
+#==============================================================================
 x = Parser()
 string = """
 1.
