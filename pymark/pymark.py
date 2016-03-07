@@ -19,20 +19,6 @@ C_GREATERTHAN = '>'
 #OPENBLOCKTAG = "<" + BLOCKTAGNAME + ATTRIBUTE + "*" + "\\s*/?>"
 #CLOSEBLOCKTAG = "</" + BLOCKTAGNAME + "\\s*[>]"
 
-TAGNAME = '[A-Za-z][A-Za-z0-9]*'
-ATTRIBUTENAME = '[a-zA-Z_:][a-zA-Z0-9:._-]*'
-ATTRIBUTEVALUE = "(?:" + UNQUOTEDVALUE + "|" + SINGLEQUOTEDVALUE + "|" + DOUBLEQUOTEDVALUE + ")"
-ATTRIBUTE = "(?:" + "\\s+" + ATTRIBUTENAME + ATTRIBUTEVALUESPEC + "?)"
-OPENTAG = "<" + TAGNAME + ATTRIBUTE + "*" + "\\s*/?>"
-
-CLOSETAG = "</" + TAGNAME + "\\s*[>]"
-HTMLCOMMENT = "<!--([^-]+|[-][^-]+)*-->"
-PROCESSINGINSTRUCTION = "[<][?].*?[?][>]"
-DECLARATION = "<![A-Z]+" + "\\s+[^>]*>"
-CDATA = "<!\\[CDATA\\[([^\\]]+|\\][^\\]]|\\]\\][^>])*\\]\\]>"
-
-HTMLTAG = "(?:" + OPENTAG + "|" + CLOSETAG + "|" + HTMLCOMMENT + "|" + PROCESSINGINSTRUCTION + "|" + DECLARATION + "|" + CDATA + ")"
-
 #==============================================================================
 # Helpers
 
@@ -1037,6 +1023,27 @@ class BlockFactory(object):
 #==============================================================================
 # Inline Parser
 
+TAGNAME = '[A-Za-z][A-Za-z0-9]*'
+ATTRIBUTENAME = '[a-zA-Z_:][a-zA-Z0-9:._-]*'
+ATTRIBUTEVALUE = "(?:" + UNQUOTEDVALUE + "|" + SINGLEQUOTEDVALUE + "|" + DOUBLEQUOTEDVALUE + ")"
+ATTRIBUTE = "(?:" + "\\s+" + ATTRIBUTENAME + ATTRIBUTEVALUESPEC + "?)"
+OPENTAG = "<" + TAGNAME + ATTRIBUTE + "*" + "\\s*/?>"
+
+CLOSETAG = "</" + TAGNAME + "\\s*[>]"
+HTMLCOMMENT = "<!--([^-]+|[-][^-]+)*-->"
+PROCESSINGINSTRUCTION = "[<][?].*?[?][>]"
+DECLARATION = "<![A-Z]+" + "\\s+[^>]*>"
+CDATA = "<!\\[CDATA\\[([^\\]]+|\\][^\\]]|\\]\\][^>])*\\]\\]>"
+
+HTMLTAG = "(?:" + OPENTAG + "|" + CLOSETAG + "|" + HTMLCOMMENT + "|" + PROCESSINGINSTRUCTION + "|" + DECLARATION + "|" + CDATA + ")"
+
+ESCAPABLE = '[!"#$%&\'()*+,./:;<=>?@[\\\\\\]^_`{|}~-]'
+ESCAPED_CHAR = '\\\\' + ESCAPABLE
+
+REG_CHAR = '[^\\\\()\\x00-\\x20]'
+
+
+
 class InlineParser(object):
     """Inline Parser"""
     compiled_re_type = type(re.compile('compiled'))
@@ -1046,12 +1053,21 @@ class InlineParser(object):
     re_autolink = re.compile(r"^<[A-Za-z][A-Za-z0-9.+-]{1,31}:[^<>\x00-\x20]*>")
     re_html_tag = re.compile('^' + HTMLTAG, re.IGNORECASE)
 
+    re_whitespacechar = re.compile('^\s')
+    re_whitespace = re.compile(r'\s+')
+    re_punctuation = re.compile(r"""^[\u2000-\u206F\u2E00-\u2E7F\\'!"#\$%&\(\)\*\+,\-\.\/:;<=>\?@\[\]\^_`\{\|\}~]""")
+
+    re_link_title = re.compile('^(?:"(' + ESCAPED_CHAR + '|[^"\\x00])*"' + '|' + '\'(' + ESCAPED_CHAR + '|[^\'\\x00])*\'' + '|' + '\\((' + ESCAPED_CHAR + '|[^)\\x00])*\\))')
+    re_link_destination_braces = re.compile('^(?:[<](?:[^<>\\n\\\\\\x00]' + '|' + ESCAPED_CHAR + '|' + '\\\\)*[>])')
+    re_link_destination = re.compile('^(?:' + REG_CHAR + '+|' + ESCAPED_CHAR + '|' + IN_PARENS_NOSP + ')*')
+    re_link_label = re.compile('^\\[(?:[^\\\\\\[\\]]|' + ESCAPED_CHAR + '|\\\\){0,1000}\\]')
 
     def __init__(self):
         self.subject          = ""  # the string literal
         self.label_nest_level = 0
         self.pos              = 0
         self.refmap           = {}
+        self.delimiters       = None
 
     def match(self, regex, reCompileFlag=0):
         """If re matches at current position in the subject, advance the position
@@ -1083,10 +1099,10 @@ class InlineParser(object):
         return True
 
     # The following methods corresond to the inline types
-    # If one element is parsed, add it to array: `inlines`
+    # If one element is parsed, add it to array: `block`
     # and return the number of characters parsed.
 
-    def parse_backticks(self, inlines):
+    def parse_backticks(self, block):
         """Parse backticks, i.e. code spans"""
         start_pos = self.pos
         ticks = self.match(r'^`+')
@@ -1101,18 +1117,18 @@ class InlineParser(object):
                 literal = re.sub(r"[ \n]+", ' ', literal)
                 code_span = InlineNode('code')
                 code_span._literal = literal.strip()
-                inlines.append(code_span)
+                block.append_child(code_span)
                 return self.pos - start_pos
             match = self.match(self.match(r"`+", re.MULTILINE))
 
         # code span not closed, interpret it as string
-        inlines.append(InlineNode('text', ticks))
+        block.append_child(InlineNode('text', ticks))
         self.pos = after_open_ticks
         return self.pos - start_pos
 
-    def parse_escape(self, inlines):
+    def parse_escape(self, block):
         """Parse backslash-escaped special character, adding the escaped character into
-        `inlines`"""
+        `block`"""
         subj = self.subject
         pos = self.pos
         if subj[pos] == '\\':
@@ -1129,14 +1145,14 @@ class InlineParser(object):
                 node = InlineNode('text', '\\')
                 advance_pos = 1
 
-            inlines.append(node)
+            block.append_child(node)
             self.pos += advance_pos
             return advance_pos
 
         else:
             return 0
 
-    def parse_autolink(self, inlines):
+    def parse_autolink(self, block):
         """ Parse an autolink (URL or email)"""
         m_email = self.match(InlineParser.re_email_autolink)
         m_link  = self.match(InlineParser.re_autolink)
@@ -1147,7 +1163,7 @@ class InlineParser(object):
             node._destination = 'mailto:' + dest
             node._title = ''
             node.append_child(InlineNode('text', dest))
-            inlines.append(node)
+            block.append_child(node)
             return len(m_email)
         elif m_link:
             dest = m_link[1:-1]
@@ -1155,16 +1171,16 @@ class InlineParser(object):
             node._destination = dest
             node._title = ''
             node.append_child(InlineNode('text', dest))
-            inlines.append(node)
+            block.append_child(node)
             return len(m_link)
         else:
             return 0
 
-    def parse_html_tag(self, inlines):
+    def parse_html_tag(self, block):
         """parse a raw HTML tag"""
         match = self.match(InlineParser.re_html_tag)
         if match:
-            inlines.append(InlineNode('html-inline', match))
+            block.append_child(InlineNode('html-inline', match))
             return len(match)
         else:
             return 0
@@ -1181,43 +1197,279 @@ class InlineParser(object):
 
         char_before = '\n' if self.pos == 0 else self.subject[self.pos - 1]
 
-
-        while self.peek() == char:
+        if char == C_SINGLEQUOTE or char == C_DOUBLEQUOTE:
             num_delims += 1
-            self.pos += 1
+            self.pos   += 1
+        else:
+            while self.peek() == char:
+                num_delims += 1
+                self.pos += 1
+
+        if num_delims == 0:
+            return None
 
         char_after = self.peek()
         char_after = char_after if char_after else '\n'
 
-        can_open = (num_delims > 0) and (num_delims <= 3) and (not re.match("\s", char_after))
-        can_close = (num_delims > 0) and (num_delims <= 3) and (not re.match("\s", char_before))
+        after_is_whitespace = InlineParser.re_whitespacechar.match(char_after)
+        after_is_punctuation = InlineParser.re_punctuation.match(char_after)
+        before_is_whitespace = InlineParser.re_whitespacechar.match(char_before)
+        before_is_punctuation = InlineParser.re_punctuation.match(char_before)
 
-        if char == "_":
-            can_open = can_open and not re.match("[a-z0-9]", char_before, re.IGNORECASE)
-            can_close = can_close and not re.match("[a-z0-9]", char_after, re.IGNORECASE)
+        left_flanking = (not after_is_whitespace) and not (after_is_punctuation and
+                not before_is_whitespace and not before_is_punctuation)
+        right_flanking = (not before_is_whitespace) and not (before_is_punctuation and
+                not after_is_whitespace and not after_is_punctuation)
+
+        can_open = left_flanking
+        can_close = right_flanking
+
+        if char == C_UNDERSCORE:
+            can_open = left_flanking and (not right_flanking or before_is_punctuation)
+            can_close = right_flanking and (not left_flanking or after_is_punctuation)
+        elif char == C_SINGLEQUOTE or char == C_DOUBLEQUOTE:
+            can_open = left_flanking and not right_flanking
+            can_close = right_flanking
 
         self.pos = start_pos
         return {"num_delims": num_delims, "can_open": can_open, "can_close": can_close }
 
-    def parse_emphasis(self, inlines):
-        """parse emphasis or strong emphasis in an efficient way with no backtracking"""
+    def parse_delim(self, block, char):
+        """Handle a delimiter marker for emphasis or a quote"""
+        ret = self._scanDelims(char)
+        if not ret:
+            return None
+
+        num_delims = ret['num_delims']
         start_pos = self.pos
-        first_close = 0
-        char = self.peek()
-        if char != '*' and char != '_':
-            return 0
+        contents = '';
 
-        res = self._scanDelims(char)
-        num_delims = res['num_delims']
+        self.pos += num_delims
 
-        # save text before current delimiter
-        if start_pos > 0:
-            inlines.append(InlineNode('text', self.subject[self.pos-num_delims : start_pos + num_delims]))
+        if char == "'":
+            contents = "\u2019"
+        elif char == '"':
+            contents = '\u201c'
         else:
-            inlines.append(InlineNode('text', self.subject[self.pos-num_delims: num_delims]))
-        
+            contents = self.subject[start_pos, self.pos]
 
+        node = InlineNode('text', contents)
+        block.append_child(node)
+        self.delimiters = {
+            "char": char,
+            "num_delims": num_delims,
+            "node": node,
+            "prev": self.delimiters,
+            "next": None,
+            "can_open": can_open,
+            "can_close": can_close,
+            "active": True}
 
+        if self.delimiters["prev"] is not None:
+            self.delimiters["prev"]["next"] = self.delimiters
+
+        return True
+
+    def _remove_delim(self, delim):
+        if delim["prev"] is not None:
+            delim["prev"]["next"] = delim['next']
+
+        if delim['next'] is None:
+            self.delimiters = delim['prev']
+        else:
+            delim['next']['prev'] = delim['prev']
+
+    def _remove_delim_between(self, bottom, top):
+        if bottom['next'] != top:
+            bottom['next'] = top
+            top['prev'] = bottom
+
+    def process_emphasis(self, stack_bottom):
+        # TODO
+        pass
+
+    def parse_link_title(self):
+        """Parse link title, return the String or None if not matched"""
+        title = self.match(InlineParser.re_link_title)
+        return unescape(title[1:len(title)-1]) if title is not None else None
+
+    def parse_link_destination(self):
+        """Parse link destination, returning the string or None if not matched"""
+        res = self.match(InlineParser.re_link_destination_braces)
+        if res is not None:
+            return unescape(res[1:len(res)-1])
+        else:
+            res2 = self.match(InlineParser.re_link_destination)
+            return unescape(res2) if res2 is not None else None
+
+    def parse_link_label(self):
+        """parse a link label, return the number of characters parsed"""
+        label = self.match(InlineParser.re_link_label)
+        return 0 if (label is None or len(label) > 1001) else len(label)
+
+    def parse_open_bracket(self, block):
+        """Add open bracket to delimiter stack and add a text node to block's children"""
+        start_pos = self.pos
+        self.pos += 1
+
+        node = InlineNode('text', '[')
+        block.append_child(node)
+        self.delimiters = {
+            "char": '[',
+            "num_delims": 1,
+            "node": node,
+            "prev": self.delimiters,
+            "next": None,
+            "can_open": True,
+            "can_close": False,
+            "index": start_pos,
+            "active": True}
+
+        if self.delimiters["prev"] is not None:
+            self.delimiters["prev"]["next"] = self.delimiters
+
+        return True
+
+    def parse_bang(self, block):
+        """If the next character is '[', then it is an start of image link"""
+        start_pos = self.pos
+        if self.peek() == '[':
+            self.pos += 1
+
+            node = InlineNode('text', '![')
+            block.append_child(node)
+            self.delimiters = {
+                "char": '!',
+                "num_delims": 1,
+                "node": node,
+                "prev": self.delimiters,
+                "next": None,
+                "can_open": True,
+                "can_close": False,
+                "index": start_pos+1,
+                "active": True}
+
+            if self.delimiters["prev"] is not None:
+                self.delimiters["prev"]["next"] = self.delimiters
+        else:
+            block.append_child(InlineNode('text', '!'))
+        return True
+
+    def parse_close_bracket(self, block):
+        """Try to match close bracket against an opening in the delimiter
+        stack. Add either a link or image, or a plain [ character to the
+        block's children, If there is a matching delimiter
+        remove it from the delimiter stack"""
+        self.pos += 1
+        start_pos = self.pos
+
+        # look through the stack of delimiters for '[' or '!['
+        opener = self.delimiters
+        while opener is not None:
+            if opener['char'] == '[' or opener['char'] == '!':
+                break;
+            opener = opener['prev']
+
+        # not matched, just return a literal
+        if opener is None:
+            block.append_child(InlineNode('text', ']'))
+            return True
+
+        if not opener['active']:
+            block.append_child(InlineNode('text', ']'))
+            self._remove_delim(opener)
+            return True
+
+        is_image = opener['char'] == '!'
+
+        if self.peek() == '(':
+            # inline link []() or image: ![]()
+            self.pos += 1
+
+            self.spnl()
+            dest = self.parse_link_destination()
+
+            if dest and self.spnl() and InlineParser.re_whitespacechar.match(self.subject[self.pos-1]):
+                # parse and save title
+                title = self.parse_link_title()
+                self.spnl()
+
+                if self.peek() == ')':
+                    self.pos += 1
+                    matched = True
+        else:
+            # check if there is a label: [text][ref-label]
+            save_pos = self.pos
+            before_label = self.pos
+
+            length = self.parse_link_label()
+            if length == 0 or length == 2:
+                # empty or missing second label
+                ref_label = self.subject[opener['index'], start_pos]
+            else:
+                ref_label = self.subject[before_label, before_label + length]
+
+            if length == 0:
+                # [] shortcut reference link
+                self.pos = save_pos
+
+            # lookup raw label in refmap
+            try:
+                link = self.refmap[ref_label]
+                dest = link.destination
+                title = link.title
+                matched = True
+            except:
+                pass
+
+        if matched:
+            node = InlineNode('image' if is_image else 'link')
+            node._destination = dest
+            node._title = title or '';
+
+            tmp = opener['node'].sibling
+            while tmp:
+                next = tmp.sibling
+
+    def parse_inline(self, block):
+        """Parse the next inline element in subject, advancing subject position
+        On success, add the result to block, and return True
+        On failure, return False"""
+        ret = False
+        char = self.peek()
+
+        if char is None:
+            return False
+
+        if char == '\n':
+            ret = self.parse_newline(block)
+        elif char == '\\':
+            ret = self.parse_escape(block)
+        elif char == '`':
+            ret = self.parse_backticks(block)
+        elif char == '*' or char == '_':
+            ret = self.parse_delim(block, char)
+        elif char == "'" or char == '"':
+            # don't support this for now
+            ret = False
+        elif char == '[':
+            ret = self.parse_open_bracket(block)
+        elif char == '!':
+            ret = self.parse_bang(block)
+        elif char == ']':
+            ret = self.parse_close_bracket(block)
+        elif char == '<':
+            ret = self.parse_autolink(block) or self.parse_html_tag(block)
+        elif char == '&':
+            ret = self.parse_entity(block)
+        else:
+            ret = self.parse_string(block)
+
+        if not ret:
+            self.pos += 1
+            block.append_child(InlineNode('text', char))
+
+        return True
 
 #==============================================================================
 x = Parser()
