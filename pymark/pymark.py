@@ -1099,7 +1099,7 @@ class Content(object):
 
     def match(self, regex, reCompileFlag=0):
         """If re matches at current position in the subject, advance the position
-        in subject and return the match; otherwise return None"""
+        in string content and return the match; otherwise return None"""
         match = None
 
         if isinstance(regex, Content.compiled_re_type):
@@ -1151,10 +1151,17 @@ class InlineParser(object):
 
 #------------------------------------------------------------------------------
 # Common regex
+
 ESCAPABLE = '[!"#$%&\'()*+,./:;<=>?@[\\\\\\]^_`{|}~-]'
 
 re_whitespace_char = re.compile(r'\s')
 re_whitespace = re.compile(r'\s+')
+
+#------------------------------------------------------------------------------
+# Helper functions
+def normalize_uri(uri):
+    # TODO: implement this
+    return uri
 
 #------------------------------------------------------------------------------
 # Rule: Escape characters
@@ -1213,6 +1220,74 @@ class RuleCodeSpan(InlineRule):
         self.pos = after_open_ticks
         return InlineNode('text', ticks)
 
+#------------------------------------------------------------------------------
+# Rule: Auto Link
+
+re_email_autolink = re.compile(
+    r"^<([a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9]"
+    r"(?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
+    r"(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*)>")
+re_autolink = re.compile(
+    r'^<[A-Za-z][A-Za-z0-9.+-]{1,31}:[^<>\x00-\x20]*>',
+    re.IGNORECASE)
+
+class RuleAutolink(InlineRule):
+    """parse auto link"""
+
+    def parse(self, parser, content):
+        m_email = content.match(re_email_autolink)
+        match = None
+        if m_email:
+            # match email
+            match = m_email
+        else:
+            m_link = content.match(re_autolink)
+            if m_link:
+                match = m_link
+            else:
+                return None
+
+        dest = match[1:-1]
+        node = InlineNode('link')
+        node._destination = normalize_uri('mailto:' + dest)
+        node._title = ''
+        node.append_child(InlineNode('text', dest))
+        return node
+
+#------------------------------------------------------------------------------
+# Rule: HTML TAG
+
+TAGNAME = '[A-Za-z][A-Za-z0-9-]*'
+ATTRIBUTENAME = '[a-zA-Z_:][a-zA-Z0-9:._-]*'
+UNQUOTEDVALUE = "[^\"'=<>`\\x00-\\x20]+"
+SINGLEQUOTEDVALUE = "'[^']*'"
+DOUBLEQUOTEDVALUE = '"[^"]*"'
+ATTRIBUTEVALUE = "(?:" + UNQUOTEDVALUE + "|" + SINGLEQUOTEDVALUE + \
+    "|" + DOUBLEQUOTEDVALUE + ")"
+ATTRIBUTEVALUESPEC = "(?:" + "\\s*=" + "\\s*" + ATTRIBUTEVALUE + ")"
+ATTRIBUTE = "(?:" + "\\s+" + ATTRIBUTENAME + ATTRIBUTEVALUESPEC + "?)"
+OPENTAG = "<" + TAGNAME + ATTRIBUTE + "*" + "\\s*/?>"
+CLOSETAG = "</" + TAGNAME + "\\s*[>]"
+HTMLCOMMENT = '<!---->|<!--(?:-?[^>-])(?:-?[^-])*-->'
+PROCESSINGINSTRUCTION = "[<][?].*?[?][>]"
+DECLARATION = "<![A-Z]+" + "\\s+[^>]*>"
+CDATA = '<!\\[CDATA\\[[\\s\\S]*?\\]\\]>'
+HTMLTAG = "(?:" + OPENTAG + "|" + CLOSETAG + "|" + HTMLCOMMENT + "|" + \
+    PROCESSINGINSTRUCTION + "|" + DECLARATION + "|" + CDATA + ")"
+re_html_tag = re.compile('^' + HTMLTAG, re.IGNORECASE)
+
+
+class RuleHTMLTag(InlineRule):
+    """parse inline HTML tag"""
+
+    def parse(self, parser, content):
+        match = content.match(re_html_tag)
+        if match is None:
+            return None
+        else:
+            node = InlineNode('html-inline')
+            node._literal = match
+            return node
 
 #==============================================================================
 x = Parser()
