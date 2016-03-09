@@ -1289,6 +1289,228 @@ class RuleHTMLTag(InlineRule):
             node._literal = match
             return node
 
+#------------------------------------------------------------------------------
+# Rule: Delimiters, i.e. *em* **strong**
+
+re_punctuation = re.compile(
+    r'^[\u2000-\u206F\u2E00-\u2E7F\\' + "'" + '!"#\$%&\(\)'
+    r'\*\+,\-\.\/:;<=>\?@\[\]\^_`\{\|\}~]')
+
+class RuleDelimiter(InlineRule):
+    """parse delimiter"""
+
+    def _scanDelims(self, content, char):
+        """Scan a sequence of characters == char, and return information about
+        the number of delimiters and whether they are positioned such that they
+        can open and/or close emphasis or strong emphasis. A utility function for
+        strong/emph parsing"""
+        num_delims         = 0
+        first_close_delims = 0
+        char_before        = char_after = None
+        start_pos          = content.pos
+
+        char_before = '\n' if content.pos == 0 else content.get_char(content.pos - 1)
+
+        if char == C_SINGLEQUOTE or char == C_DOUBLEQUOTE:
+            num_delims += 1
+            content.pos += 1
+        else:
+            while content.peek() == char:
+                num_delims += 1
+                content.pos += 1
+
+        if num_delims == 0:
+            return None
+
+        char_after = content.peek()
+        char_after = char_after if char_after else '\n'
+
+        after_is_whitespace   = re_whitespacechar.match(char_after)
+        after_is_punctuation  = re_punctuation.match(char_after)
+        before_is_whitespace  = re_whitespacechar.match(char_before)
+        before_is_punctuation = re_punctuation.match(char_before)
+
+        left_flanking = (not after_is_whitespace) and not (after_is_punctuation and
+                not before_is_whitespace and not before_is_punctuation)
+        right_flanking = (not before_is_whitespace) and not (before_is_punctuation and
+                not after_is_whitespace and not after_is_punctuation)
+
+        can_open = left_flanking
+        can_close = right_flanking
+
+        if char == C_UNDERSCORE:
+            can_open = left_flanking and (not right_flanking or before_is_punctuation)
+            can_close = right_flanking and (not left_flanking or after_is_punctuation)
+        elif char == C_SINGLEQUOTE or char == C_DOUBLEQUOTE:
+            can_open = left_flanking and not right_flanking
+            can_close = right_flanking
+
+        content.pos = start_pos
+        return {"num_delims": num_delims, "can_open": can_open, "can_close": can_close }
+
+    def _remove_delimiter(self, parser, delim):
+        if delim.get('prev') is not None:
+            delim['prev']['next'] = delim.get('next')
+        if delim.get('next') is None:
+            # top of stack
+            parser.delimiters = delim.get('previous')
+
+    def _remove_delimiter_between(self, bottom, top):
+        nxt = bottom.get('next')
+        if bottom.get('next') != top:
+            bottom['next'] = top
+            top['prev'] = bottom
+
+        # free all the delimiters between, so that they can be GC-ed
+        while nxt is not None and nxt != top:
+            tmp = nxt['next']
+            nxt['prev'] = None
+            nxt['next'] = None
+            nxt = tmp
+
+    def parse(self, parser, content):
+        char = content.peek()
+        if char != '*' and char != '_':
+            return None
+
+        res = self._scanDelims(content, char)
+        if res is None:
+            return res
+
+        num_delims = res.get('num_delims')
+        start_pos = content.pos
+        content.advance(num_delims)
+        contents = content.string[start_pos:content.pos]
+        node = InlineNode('text', contents)
+
+        parser.delimiters = {
+            'char': char,
+            'num_delims': num_delims,
+            'node': node,
+            'prev': getattr(parser, 'delimiters'),
+            'next': None,
+            'can_open': res.get('can_open'),
+            'can_close': res.get('can_close'),
+            'active': True,
+         }
+
+        if parser.delimiters['prev'] is not None:
+            parser.delimiters['prev']['next'] = parser.delimiters
+
+        return node
+
+    def post_process(self, parser):
+        """correctly close the delimiters"""
+
+        opener_bottom = {
+                '_': None,
+                '*': None,
+                }
+
+        use_delims = 0
+
+        # find first closer, i.e find the stack bottom
+        closer = parser.delimiters
+        while closer is not None and closer.get('prev') is not None:
+            closer = closer.get('prev')
+
+        # move forward, looking for closers, and handling each
+        while closer is not None:
+            closer_char = closer.get('char')
+            if not (closer.get('can_close') and (closer_char == '_' or closer_char == '*')):
+                closer = closer.get('next')
+                continue
+
+            # found emphasis closer, now look back for first matching
+            # opener
+            opener = closer.get('prev')
+            opener_found = False
+            while (opener is not None and opener != opener_bottom[closer_char]):
+                if opener.get('char') == closer_char and opener.get('can_open'):
+                    opener_found = True
+                    break
+                opener = opener.get('prev')
+            old_closer = closer
+
+            if closer_char == '*' or closer_char == '_':
+                if not opener_found:
+                    closer = closer.get('next')
+                    # set lower bound for future searches for openers
+                    openers_bottom[closer_char] = old_closer['prev']
+                    if not old_closer['can_open']:
+                        self._remove_delimiter(old_closer)
+                    continue
+
+                # calculate actual number of delimiters used by closer
+                if closer['num_delims'] < 3 or opener['num_delims'] < 3:
+                    if closer['num_delims'] < opener['num_delims']:
+                        use_delims = closer['num_delims']
+                    else:
+                        use_delims = opener['num_delims']
+                else:
+                    if closer['num_delims'] % 2 == 0:
+                        use_delims = 2
+                    else:
+                        use_delims = 1
+
+                opener_inl = opener.get('node')
+                closer_inl = closer.get('node')
+
+                # remove used delimiters from stack elements and inlines
+                opener['num_delims'] -= use_delims
+                closer['num_delims'] -= use_delims
+                opener_inl.literal = opener_inl._literal[:len(opener_inl._literal)-use_delims]
+                closer_inl.literal = closer_inl._literal[:len(closer_inl._literal)-use_delims]
+
+                # build contents for new emph element
+                if use_delims == 1:
+                    emph = InlineNode('emph')
+                else:
+                    emph = InlineNode('Strong')
+
+                # move the nodes to emph element
+                tmp = opener_inl.nxt
+                while tmp and tmp != closer_inl:
+                    nxt = tmp.nxt
+                    tmp.unlink()
+                    emph.append_child(tmp)
+                    tmp = nxt
+
+                opener_inl.insert_after(emph)
+
+                # remove delimiters between opener and closer from stack
+                self._remove_delimiter_between(opener, closer)
+
+                # remove opener and closer if they have 0 delimiters now
+                if opener['num_delims'] == 0:
+                    opener_inl.unlink()
+                    self._remove_delimiter(opener)
+
+                if closer['num_delims'] == 0:
+                    closer_inl.unlink()
+
+                    # closer will be used for next iterator
+                    tempstack = closer['next']
+                    self._remove_delimiter(closer)
+                    closer = tempstack
+                continue
+            else:
+                # can handle other delimiters here, for example quote
+                # or strike through
+                # TODO: think about how to add rules dynamically
+                pass
+
+        # Remove all delmiters
+        while parser.delimiters is not None:
+            # should remove them one by one, otherwise they will not be GC-ed
+            self._remove_delimiter(parser, parser.delimiters)
+
+
+
+
+
+
+
 #==============================================================================
 x = Parser()
 string = """
