@@ -829,7 +829,7 @@ class ListItem(Block):
 
     def is_tight(self):
         # First case, ends with blank line and has sibling
-        if self.sibling and ListItem._ends_with_blank_line(self):
+        if self.nxt and ListItem._ends_with_blank_line(self):
             return False
 
         # recurse into children of list item, to see if there are spaces between them
@@ -838,7 +838,7 @@ class ListItem(Block):
         #    bbb  <- subitem
         # 2. ccc
         for item in self:
-            if ListItem._ends_with_blank_line(item) and item.sibling:
+            if ListItem._ends_with_blank_line(item) and item.nxt:
                 return False
         return True
 
@@ -1063,6 +1063,156 @@ class BlockFactory(object):
 
 #==============================================================================
 # Inline Parser
+
+class Content(object):
+    """Utility Class for string content"""
+    compiled_re_type = type(re.compile('compiled'))
+
+    def __init__(self, string):
+        self.string = string
+        self.pos = 0
+
+    def peek(self, offset=0):
+        """peek the character `offset` after on the current string"""
+        try:
+            return self.string[self.offset + offset]
+        except:
+            return None
+
+    def get_char(self, offset=0):
+        """get the character on the current string at `offset`"""
+        try:
+            return self.string[offset]
+        except:
+            return None
+
+    @property
+    def rest(self):
+        """Get the rest string content"""
+        return self.string[self.offset:]
+
+    def is_end(self):
+        return self.pos >= len(string)
+
+    def advance(self, num):
+        self.pos += num
+
+    def match(self, regex, reCompileFlag=0):
+        """If re matches at current position in the subject, advance the position
+        in subject and return the match; otherwise return None"""
+        match = None
+
+        if isinstance(regex, Content.compiled_re_type):
+            match = regex.search(self.string[self.pos:])
+        else:
+            match = re.search(self.string[self.pos:], flags = reCompileFlag)
+
+        if not match:
+            return None
+
+        self.pos += match.end(0)
+        return match.group()
+
+
+class InlineRule(object):
+    """Base Class for rules that parses inline elements"""
+    def parse(self, parser, content):
+        """Try to parse the content, return None if cannot parse current situation
+        Else return an InlineNode.
+
+        The parse method should modify the content's position accordingly"""
+        return None
+
+
+class InlineParser(object):
+    """Inline Parser"""
+    def __init__(self):
+        pass
+
+    def parse_content(self, string):
+        """The main entry for inline parser, return a InlineNode whose childrens are the parsed
+        result"""
+        content = Content(string)
+        parser.node = InlineNode('parent')
+
+        while not content.is_end():
+            for rule in self.rules:
+                node = rule.parse(self, content)
+                if node is not None:
+                    ret.append_child()
+                    break
+
+        # in the end, process
+        for rule in reversed(self.rules):
+            if hasattr(rule, 'post_process'):
+                rule.post_process(self)
+
+        return parser.node
+
+#------------------------------------------------------------------------------
+# Common regex
+ESCAPABLE = '[!"#$%&\'()*+,./:;<=>?@[\\\\\\]^_`{|}~-]'
+
+re_whitespace_char = re.compile(r'\s')
+re_whitespace = re.compile(r'\s+')
+
+#------------------------------------------------------------------------------
+# Rule: Escape characters
+
+re_escapable = re.compile('^' + ESCAPABLE)
+
+class RuleEscape(InlineRule):
+    """Parse Escaped characters, return either the escaped character, a hard
+    line break, or a literal backslash."""
+
+    def parse(self, parser, content):
+        if content.peek() != '\\':
+            return None
+
+        content.advance(1)
+
+        next_char = content.peek()
+        if next_char == '\n':
+            content.advance(1)
+            return InlineNode('hard-break')
+        elif next_char is not None and content.match(re_escapable):
+            content.advance(1)
+            return InlineNode('text', next_char)
+        else:
+            return InlineNode('text', '\\')
+
+#------------------------------------------------------------------------------
+# Rule: Code Span
+
+re_ticks = re.compile(r'`+')
+re_ticks_here = re.compile(r'^`+')
+
+class RuleCodeSpan(InlineRule):
+    """Parse backticks as code span"""
+
+    def parse(self, parser, content):
+        ticks = content.match(re_ticks_here)
+        if ticks is None:
+            return None
+
+        after_open_ticks = content.pos
+
+        # find the closing ticks
+        matched = content.match(re_ticks)
+        while matched is not None:
+            if matched == ticks:
+                # found matched
+                node = InlineNode('code')
+                literal = content.string[after_open_ticks:self.pos - len(ticks)]
+                literal = re_whitespace.sub(' ', literal.strip())
+                node._literal = literal
+                return node
+            matched = content.match(re_ticks)
+
+        # not matched, resume position
+        self.pos = after_open_ticks
+        return InlineNode('text', ticks)
+
 
 #==============================================================================
 x = Parser()
