@@ -1299,7 +1299,8 @@ re_punctuation = re.compile(
 class RuleDelimiter(InlineRule):
     """parse delimiter"""
 
-    def _scanDelims(self, content, char):
+    @staticmethod
+    def _scanDelims(content, char):
         """Scan a sequence of characters == char, and return information about
         the number of delimiters and whether they are positioned such that they
         can open and/or close emphasis or strong emphasis. A utility function for
@@ -1348,14 +1349,16 @@ class RuleDelimiter(InlineRule):
         content.pos = start_pos
         return {"num_delims": num_delims, "can_open": can_open, "can_close": can_close }
 
-    def _remove_delimiter(self, parser, delim):
+    @staticmethod
+    def _remove_delimiter(parser, delim):
         if delim.get('prev') is not None:
             delim['prev']['next'] = delim.get('next')
         if delim.get('next') is None:
             # top of stack
             parser.delimiters = delim.get('previous')
 
-    def _remove_delimiter_between(self, bottom, top):
+    @staticmethod
+    def _remove_delimiter_between(bottom, top):
         nxt = bottom.get('next')
         if bottom.get('next') != top:
             bottom['next'] = top
@@ -1373,7 +1376,7 @@ class RuleDelimiter(InlineRule):
         if char != '*' and char != '_':
             return None
 
-        res = self._scanDelims(content, char)
+        res = RuleDelimiter._scanDelims(content, char)
         if res is None:
             return res
 
@@ -1399,19 +1402,19 @@ class RuleDelimiter(InlineRule):
 
         return node
 
-    def post_process(self, parser):
+    def post_process(self, parser, stack_bottom=None):
         """correctly close the delimiters"""
 
         opener_bottom = {
-                '_': None,
-                '*': None,
+                '_': stack_bottom,
+                '*': stack_bottom,
                 }
 
         use_delims = 0
 
         # find first closer, i.e find the stack bottom
         closer = parser.delimiters
-        while closer is not None and closer.get('prev') is not None:
+        while closer is not None and closer.get('prev') != stack_bottom:
             closer = closer.get('prev')
 
         # move forward, looking for closers, and handling each
@@ -1425,7 +1428,7 @@ class RuleDelimiter(InlineRule):
             # opener
             opener = closer.get('prev')
             opener_found = False
-            while (opener is not None and opener != opener_bottom[closer_char]):
+            while (opener is not None and opener != stack_bottom and opener != opener_bottom[closer_char]):
                 if opener.get('char') == closer_char and opener.get('can_open'):
                     opener_found = True
                     break
@@ -1438,7 +1441,7 @@ class RuleDelimiter(InlineRule):
                     # set lower bound for future searches for openers
                     openers_bottom[closer_char] = old_closer['prev']
                     if not old_closer['can_open']:
-                        self._remove_delimiter(old_closer)
+                        RuleDelimiter._remove_delimiter(old_closer)
                     continue
 
                 # calculate actual number of delimiters used by closer
@@ -1479,19 +1482,19 @@ class RuleDelimiter(InlineRule):
                 opener_inl.insert_after(emph)
 
                 # remove delimiters between opener and closer from stack
-                self._remove_delimiter_between(opener, closer)
+                RuleDelimiter._remove_delimiter_between(opener, closer)
 
                 # remove opener and closer if they have 0 delimiters now
                 if opener['num_delims'] == 0:
                     opener_inl.unlink()
-                    self._remove_delimiter(opener)
+                    RuleDelimiter._remove_delimiter(opener)
 
                 if closer['num_delims'] == 0:
                     closer_inl.unlink()
 
                     # closer will be used for next iterator
                     tempstack = closer['next']
-                    self._remove_delimiter(closer)
+                    RuleDelimiter._remove_delimiter(closer)
                     closer = tempstack
                 continue
             else:
@@ -1501,9 +1504,9 @@ class RuleDelimiter(InlineRule):
                 pass
 
         # Remove all delmiters
-        while parser.delimiters is not None:
+        while parser.delimiters is not None and parser.delimiters != stack_bottom:
             # should remove them one by one, otherwise they will not be GC-ed
-            self._remove_delimiter(parser, parser.delimiters)
+            RuleDelimiter._remove_delimiter(parser, parser.delimiters)
 
 
 
