@@ -1064,6 +1064,8 @@ class BlockFactory(object):
 #==============================================================================
 # Inline Parser
 
+re_spnl = re.compile(r'^ *(?:\n *)?')
+
 class Content(object):
     """Utility Class for string content"""
     compiled_re_type = type(re.compile('compiled'))
@@ -1094,7 +1096,7 @@ class Content(object):
     def is_end(self):
         return self.pos >= len(string)
 
-    def advance(self, num):
+    def advance(self, num=1):
         self.pos += num
 
     def match(self, regex, reCompileFlag=0):
@@ -1112,6 +1114,10 @@ class Content(object):
 
         self.pos += match.end(0)
         return match.group()
+
+    def skip_spaces(self):
+        """Parse zero or more space characters, including at most one newline"""
+        self.match(re_spnl)
 
 
 class InlineRule(object):
@@ -1193,14 +1199,14 @@ class RuleEscape(InlineRule):
         if content.peek() != '\\':
             return None
 
-        content.advance(1)
+        content.advance()
 
         next_char = content.peek()
         if next_char == '\n':
-            content.advance(1)
+            content.advance()
             return InlineNode('hard-break')
         elif next_char is not None and content.match(re_escapable):
-            content.advance(1)
+            content.advance()
             return InlineNode('text', next_char)
         else:
             return InlineNode('text', '\\')
@@ -1538,13 +1544,13 @@ def parse_link_label(parser, content):
 
     if content.peek() != '[':
         return None
-    content.advance(1)
+    content.advance()
     level = 1
     ret = None
 
     while not content.is_end():
         if content.peek() == ']':
-            content.advance(1)
+            content.advance()
             level -= 1
             if level == 0:
                 break
@@ -1591,9 +1597,84 @@ def parse_link_destination(parser, content):
 
     return normalize_uri(description) if description else None
 
+class RuleLink(InlineRule):
+    """Rule for parsing link"""
 
+    def parse(self, parser, content, side_effect=True):
+        label = parse_link_label(parser, content)
+        if label is None:
+            return None
 
+        start_pos = content.pos
+        matched = False
 
+        content.skip_spaces()
+        if content.peek() == '(':
+            # inline link
+            content.advance()
+
+            # [link](  <href> "title)
+            #        ^^ skip these spaces
+            content.skip_spaces()
+
+            start = content.pos
+            dest = parse_link_destination(parser, content)
+            if dest is not None:
+                # match title
+                content.skip_spaces()
+
+                # make sure there's a space before the title
+                if re.match(re_whitespace_char, content.get_char(content.pos-1)):
+                    title = parse_link_title(parser, content)
+                content.skip_spaces()
+                if content.peek() == ')':
+                    content.advance()
+                    matched = True
+        elif content.peek() == '[':
+            # reference link
+            ref_label = parse_link_label(parser, content)
+
+            # TODO: refer to actual link
+            if True:
+                content.pos = start_pos
+            else:
+                matched = True
+                dest = ''
+                title = 'title'
+        else:
+            # not matched
+            pass
+
+        if not matched:
+            current_pos = start_pos
+            return None
+
+        node = InlineNode('link')
+        node._href = dest
+        node._title = title
+        node._label = label
+        return node
+
+#------------------------------------------------------------------------------
+# Rule: Link, depends on link
+
+class RuleImage(InlineRule):
+    """Rule for parsing image"""
+    def parse(self, parser, content, side_effect=True):
+        if content.peek() != '!':
+            return None
+
+        start_pos = content.pos
+        content.advance()
+
+        rule = RuleLink()
+        node = rule.parse(parser, content, side_effect)
+        if node is None:
+            content.pos = start_pos
+            return None
+
+        node.name = 'image'
+        return node
 
 #==============================================================================
 x = Parser()
