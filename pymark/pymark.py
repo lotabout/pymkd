@@ -1528,7 +1528,68 @@ class RuleDelimiter(InlineRule):
             # should remove them one by one, otherwise they will not be GC-ed
             RuleDelimiter._remove_delimiter(parser, parser.delimiters)
 
+#------------------------------------------------------------------------------
+# Rule: Link
 
+def parse_link_label(parser, content):
+    """parse link's label in format: [label] (link), return the position of the end
+    of label, None if cannot be satisfied"""
+    start_pos = content.pos
+
+    if content.peek() != '[':
+        return None
+    content.advance(1)
+    level = 1
+    ret = None
+
+    while not content.is_end():
+        if content.peek() == ']':
+            content.advance(1)
+            level -= 1
+            if level == 0:
+                break
+
+        parser.skip_token(content)
+        if content.peek() == '[':
+            level += 1
+
+    if level == 0:
+        ret = content.string[start_pos+1:content.pos-1]
+    else:
+        # restore old state
+        content.pos = start_pos
+    return ret
+
+
+re_link_title = re.compile(
+    '^(?:"(' + ESCAPED_CHAR + '|[^"\\x00])*"' +
+    '|' +
+    '\'(' + ESCAPED_CHAR + '|[^\'\\x00])*\'' +
+    '|' +
+    '\\((' + ESCAPED_CHAR + '|[^)\\x00])*\\))')
+
+def parse_link_title(parser, content):
+    """link's format: [label](link_destination "title")"""
+    title = content.match(re_link_title)
+    return unescape_string(title[1:-1]) if title else None
+
+re_link_destination_braces = re.compile(
+    '^(?:[<](?:[^ <>\\t\\n\\\\\\x00]' + '|' + ESCAPED_CHAR + '|' +
+    '\\\\)*[>])')
+re_link_destination = re.compile(
+    '^(?:' + REG_CHAR + '+|' + ESCAPED_CHAR + '|\\\\|' +
+    IN_PARENS_NOSP + ')*')
+
+def parse_link_destination(parser, content):
+    """link's format: [label](link_destination "title")"""
+    description = content.match(re_link_destination_braces)
+    if description is None:
+        description = content.match(re_link_destination)
+    else:
+        # chop off <..>
+        description = description[1:-1]
+
+    return normalize_uri(description) if description else None
 
 
 
