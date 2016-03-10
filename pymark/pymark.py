@@ -1116,11 +1116,14 @@ class Content(object):
 
 class InlineRule(object):
     """Base Class for rules that parses inline elements"""
-    def parse(self, parser, content):
+    def parse(self, parser, content, side_effect=True):
         """Try to parse the content, return None if cannot parse current situation
         Else return an InlineNode.
 
-        The parse method should modify the content's position accordingly"""
+        The parse method should modify the content's position accordingly
+
+        If `side_effect` is False, do not do anything but modify the content's cursor
+        position."""
         return None
 
 
@@ -1149,6 +1152,20 @@ class InlineParser(object):
 
         return parser.node
 
+    def skip_token(self, content):
+        """parse the content with all rules, but do not do all the side effects.
+        Move the cursor forward"""
+
+        # TODO: later add cache to enhance performance
+
+        while not content.is_end():
+            for rule in self.rules:
+                node = rule.parse(self, content, side_effect=False)
+                if node is not None:
+                    break
+
+
+
 #------------------------------------------------------------------------------
 # Common regex
 
@@ -1172,7 +1189,7 @@ class RuleEscape(InlineRule):
     """Parse Escaped characters, return either the escaped character, a hard
     line break, or a literal backslash."""
 
-    def parse(self, parser, content):
+    def parse(self, parser, content, side_effect=True):
         if content.peek() != '\\':
             return None
 
@@ -1197,7 +1214,7 @@ re_ticks_here = re.compile(r'^`+')
 class RuleCodeSpan(InlineRule):
     """Parse backticks as code span"""
 
-    def parse(self, parser, content):
+    def parse(self, parser, content, side_effect=True):
         ticks = content.match(re_ticks_here)
         if ticks is None:
             return None
@@ -1234,7 +1251,7 @@ re_autolink = re.compile(
 class RuleAutolink(InlineRule):
     """parse auto link"""
 
-    def parse(self, parser, content):
+    def parse(self, parser, content, side_effect=True):
         m_email = content.match(re_email_autolink)
         match = None
         if m_email:
@@ -1280,7 +1297,7 @@ re_html_tag = re.compile('^' + HTMLTAG, re.IGNORECASE)
 class RuleHTMLTag(InlineRule):
     """parse inline HTML tag"""
 
-    def parse(self, parser, content):
+    def parse(self, parser, content, side_effect=True):
         match = content.match(re_html_tag)
         if match is None:
             return None
@@ -1371,7 +1388,7 @@ class RuleDelimiter(InlineRule):
             nxt['next'] = None
             nxt = tmp
 
-    def parse(self, parser, content):
+    def parse(self, parser, content, side_effect=True):
         char = content.peek()
         if char != '*' and char != '_':
             return None
@@ -1385,6 +1402,9 @@ class RuleDelimiter(InlineRule):
         content.advance(num_delims)
         contents = content.string[start_pos:content.pos]
         node = InlineNode('text', contents)
+
+        if not side_effect:
+            return node
 
         parser.delimiters = {
             'char': char,
