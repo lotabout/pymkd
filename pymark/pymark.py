@@ -1656,7 +1656,7 @@ class RuleLink(InlineRule):
         return node
 
 #------------------------------------------------------------------------------
-# Rule: Link, depends on link
+# Rule: Image, depends on link
 
 class RuleImage(InlineRule):
     """Rule for parsing image"""
@@ -1675,6 +1675,37 @@ class RuleImage(InlineRule):
 
         node.name = 'image'
         return node
+
+#------------------------------------------------------------------------------
+# Rule: Newline, for hard break and softbreak
+
+re_final_space = re.compile(r' *$')
+re_initial_space = re.compile(r'^ *')
+
+class RuleNewline(InlineRule):
+    """Parse newline, generate hardbreak or softbreak"""
+    def parse(self, parser, content, side_effect=True):
+        if content.peek() != '\n':
+            return None
+        content.advance()
+
+        last_child = parser.node.last_child
+        if last_child and last_child.name == 'text' and last_child._literal[-1] == ' ':
+            hardbreak = len(last_child._literal) >= 2 and last_child._literal[-1] == ' '
+            last_child._literal = re_final_space.sub('', last_child._literal)
+            if hardbreak:
+                node = InlineNode('hard-break')
+            else:
+                node = InlineNode('soft-break')
+        else:
+            node = InlineNode('soft-break')
+
+        # remove leading spaces in next line
+        content.match(re_initial_space)
+        return node
+
+#------------------------------------------------------------------------------
+# Rule: Entity. TODO: implement this
 
 #==============================================================================
 x = Parser()
