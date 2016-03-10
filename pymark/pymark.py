@@ -118,6 +118,764 @@ class Line(object):
             return None
 
 #==============================================================================
+# Node
+
+class Node(object):
+    """A tree node"""
+    def __init__(self, parent=None, start_line=1, start_col=0, end_line=0, end_col=0):
+        self.parent      = parent
+        self.first_child = None
+        self.last_child  = None
+        self.prv         = None
+        self.nxt         = None
+
+        self.start_line  = start_line
+        self.start_col   = start_col
+        self.end_line    = end_line
+        self.end_col     = end_col
+
+    @property
+    def tail_child(self):
+        container = self
+        while container.last_child:
+            container = container.last_child
+        return container
+
+    @property
+    def sibling(self):
+        """Get the next sibling of a node"""
+        return self.nxt
+
+    def append_child(self, node):
+        node.unlink()
+        node.parent = self
+        if self.last_child:
+            self.last_child.nxt = node
+            node.prv = self.last_child
+            self.last_child = node
+        else:
+            self.first_child = node
+            self.last_child = node
+
+    def prepend_child(self, node):
+        node.unlink()
+        node.parent = self
+        if self.first_child:
+            self.first_child.prv = node
+            node.nxt = self.first_child
+            self.first_child = node
+        else:
+            self.first_child = node
+            self.last_child = node
+
+    def unlink(self):
+        if self.prv:
+            self.prv.nxt = self.nxt
+        elif self.parent:
+            self.parent.first_child = self.nxt
+
+        if self.nxt:
+            self.nxt.prv = self.prv
+        elif self.parent:
+            self.parent.last_child = self.prv
+
+        self.prv   = None
+        self.nxt   = None
+        self.parent = None
+
+    def append_tail(self, node):
+        container = self
+        while container.last_child:
+            container = container.last_child
+        container.append_child(node)
+
+    def insert_after(self, sibling):
+        sibling.unlink()
+        sibling.nxt = self.nxt
+        if sibling.nxt:
+            sibling.nxt.prv = sibling
+
+        sibling.prv = self
+        self.nxt = sibling
+        sibling.parent = self.parent
+        if sibling.nxt is None:
+            sibling.parent.last_child = sibling
+
+    def insert_before(self, sibling):
+        sibling.unlink()
+        sibling.prv = self.prv
+        if sibling.prv:
+            sibling.prv.nxt = sibling
+        sibling.nxt = self
+        self.prv = sibling
+        sibling.parent = self.parent
+        if sibling.prv is None:
+            sibling.parent.first_child = sibling
+
+    def __iter__(self):
+        self.cursor = self.first_child
+        return self
+
+    def next(self):
+        """Iterate through all its children"""
+        if self.cursor:
+            ret = self.cursor
+            self.cursor = self.cursor.nxt
+            return ret
+        else:
+            raise StopIteration
+
+
+#==============================================================================
+# Inline Parser
+
+re_spnl = re.compile(r'^ *(?:\n *)?')
+
+class Content(object):
+    """Utility Class for string content"""
+    compiled_re_type = type(re.compile('compiled'))
+
+    def __init__(self, string):
+        self.string = string
+        self.pos = 0
+
+    def peek(self, offset=0):
+        """peek the character `offset` after on the current string"""
+        try:
+            return self.string[self.offset + offset]
+        except:
+            return None
+
+    def get_char(self, offset=0):
+        """get the character on the current string at `offset`"""
+        try:
+            return self.string[offset]
+        except:
+            return None
+
+    @property
+    def rest(self):
+        """Get the rest string content"""
+        return self.string[self.offset:]
+
+    def is_end(self):
+        return self.pos >= len(string)
+
+    def advance(self, num=1):
+        self.pos += num
+
+    def match(self, regex, reCompileFlag=0):
+        """If re matches at current position in the subject, advance the position
+        in string content and return the match; otherwise return None"""
+        match = None
+
+        if isinstance(regex, Content.compiled_re_type):
+            match = regex.search(self.string[self.pos:])
+        else:
+            match = re.search(self.string[self.pos:], flags = reCompileFlag)
+
+        if not match:
+            return None
+
+        self.pos += match.end(0)
+        return match.group()
+
+    def skip_spaces(self):
+        """Parse zero or more space characters, including at most one newline"""
+        self.match(re_spnl)
+
+
+class InlineRule(object):
+    """Base Class for rules that parses inline elements"""
+    def parse(self, parser, content, side_effect=True):
+        """Try to parse the content, return None if cannot parse current situation
+        Else return an InlineNode.
+
+        The parse method should modify the content's position accordingly
+
+        If `side_effect` is False, do not do anything but modify the content's cursor
+        position."""
+        return None
+
+
+#------------------------------------------------------------------------------
+# Common regex
+
+ESCAPABLE = '[!"#$%&\'()*+,./:;<=>?@[\\\\\\]^_`{|}~-]'
+
+re_whitespace_char = re.compile(r'\s')
+re_whitespace = re.compile(r'\s+')
+
+#------------------------------------------------------------------------------
+# Helper functions
+def normalize_uri(uri):
+    # TODO: implement this
+    return uri
+
+#------------------------------------------------------------------------------
+# Rule: Escape characters
+
+re_escapable = re.compile('^' + ESCAPABLE)
+
+class RuleEscape(InlineRule):
+    """Parse Escaped characters, return either the escaped character, a hard
+    line break, or a literal backslash."""
+
+    def parse(self, parser, content, side_effect=True):
+        if content.peek() != '\\':
+            return None
+
+        content.advance()
+
+        next_char = content.peek()
+        if next_char == '\n':
+            content.advance()
+            return InlineNode('hard-break')
+        elif next_char is not None and content.match(re_escapable):
+            content.advance()
+            return InlineNode('text', next_char)
+        else:
+            return InlineNode('text', '\\')
+
+#------------------------------------------------------------------------------
+# Rule: Code Span
+
+re_ticks = re.compile(r'`+')
+re_ticks_here = re.compile(r'^`+')
+
+class RuleCodeSpan(InlineRule):
+    """Parse backticks as code span"""
+
+    def parse(self, parser, content, side_effect=True):
+        ticks = content.match(re_ticks_here)
+        if ticks is None:
+            return None
+
+        after_open_ticks = content.pos
+
+        # find the closing ticks
+        matched = content.match(re_ticks)
+        while matched is not None:
+            if matched == ticks:
+                # found matched
+                node = InlineNode('code')
+                literal = content.string[after_open_ticks:self.pos - len(ticks)]
+                literal = re_whitespace.sub(' ', literal.strip())
+                node._literal = literal
+                return node
+            matched = content.match(re_ticks)
+
+        # not matched, resume position
+        self.pos = after_open_ticks
+        return InlineNode('text', ticks)
+
+#------------------------------------------------------------------------------
+# Rule: Auto Link
+
+re_email_autolink = re.compile(
+    r"^<([a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9]"
+    r"(?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
+    r"(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*)>")
+re_autolink = re.compile(
+    r'^<[A-Za-z][A-Za-z0-9.+-]{1,31}:[^<>\x00-\x20]*>',
+    re.IGNORECASE)
+
+class RuleAutolink(InlineRule):
+    """parse auto link"""
+
+    def parse(self, parser, content, side_effect=True):
+        m_email = content.match(re_email_autolink)
+        match = None
+        if m_email:
+            # match email
+            match = m_email
+        else:
+            m_link = content.match(re_autolink)
+            if m_link:
+                match = m_link
+            else:
+                return None
+
+        dest = match[1:-1]
+        node = InlineNode('link')
+        node._destination = normalize_uri('mailto:' + dest)
+        node._title = ''
+        node.append_child(InlineNode('text', dest))
+        return node
+
+#------------------------------------------------------------------------------
+# Rule: HTML TAG
+
+TAGNAME = '[A-Za-z][A-Za-z0-9-]*'
+ATTRIBUTENAME = '[a-zA-Z_:][a-zA-Z0-9:._-]*'
+UNQUOTEDVALUE = "[^\"'=<>`\\x00-\\x20]+"
+SINGLEQUOTEDVALUE = "'[^']*'"
+DOUBLEQUOTEDVALUE = '"[^"]*"'
+ATTRIBUTEVALUE = "(?:" + UNQUOTEDVALUE + "|" + SINGLEQUOTEDVALUE + \
+    "|" + DOUBLEQUOTEDVALUE + ")"
+ATTRIBUTEVALUESPEC = "(?:" + "\\s*=" + "\\s*" + ATTRIBUTEVALUE + ")"
+ATTRIBUTE = "(?:" + "\\s+" + ATTRIBUTENAME + ATTRIBUTEVALUESPEC + "?)"
+OPENTAG = "<" + TAGNAME + ATTRIBUTE + "*" + "\\s*/?>"
+CLOSETAG = "</" + TAGNAME + "\\s*[>]"
+HTMLCOMMENT = '<!---->|<!--(?:-?[^>-])(?:-?[^-])*-->'
+PROCESSINGINSTRUCTION = "[<][?].*?[?][>]"
+DECLARATION = "<![A-Z]+" + "\\s+[^>]*>"
+CDATA = '<!\\[CDATA\\[[\\s\\S]*?\\]\\]>'
+HTMLTAG = "(?:" + OPENTAG + "|" + CLOSETAG + "|" + HTMLCOMMENT + "|" + \
+    PROCESSINGINSTRUCTION + "|" + DECLARATION + "|" + CDATA + ")"
+re_html_tag = re.compile('^' + HTMLTAG, re.IGNORECASE)
+
+
+class RuleHTMLTag(InlineRule):
+    """parse inline HTML tag"""
+
+    def parse(self, parser, content, side_effect=True):
+        match = content.match(re_html_tag)
+        if match is None:
+            return None
+        else:
+            node = InlineNode('html-inline')
+            node._literal = match
+            return node
+
+#------------------------------------------------------------------------------
+# Rule: Delimiters, i.e. *em* **strong**
+
+re_punctuation = re.compile(
+    r'^[\u2000-\u206F\u2E00-\u2E7F\\' + "'" + '!"#\$%&\(\)'
+    r'\*\+,\-\.\/:;<=>\?@\[\]\^_`\{\|\}~]')
+
+class RuleDelimiter(InlineRule):
+    """parse delimiter"""
+
+    @staticmethod
+    def _scanDelims(content, char):
+        """Scan a sequence of characters == char, and return information about
+        the number of delimiters and whether they are positioned such that they
+        can open and/or close emphasis or strong emphasis. A utility function for
+        strong/emph parsing"""
+        num_delims         = 0
+        first_close_delims = 0
+        char_before        = char_after = None
+        start_pos          = content.pos
+
+        char_before = '\n' if content.pos == 0 else content.get_char(content.pos - 1)
+
+        if char == C_SINGLEQUOTE or char == C_DOUBLEQUOTE:
+            num_delims += 1
+            content.pos += 1
+        else:
+            while content.peek() == char:
+                num_delims += 1
+                content.pos += 1
+
+        if num_delims == 0:
+            return None
+
+        char_after = content.peek()
+        char_after = char_after if char_after else '\n'
+
+        after_is_whitespace   = re_whitespacechar.match(char_after)
+        after_is_punctuation  = re_punctuation.match(char_after)
+        before_is_whitespace  = re_whitespacechar.match(char_before)
+        before_is_punctuation = re_punctuation.match(char_before)
+
+        left_flanking = (not after_is_whitespace) and not (after_is_punctuation and
+                not before_is_whitespace and not before_is_punctuation)
+        right_flanking = (not before_is_whitespace) and not (before_is_punctuation and
+                not after_is_whitespace and not after_is_punctuation)
+
+        can_open = left_flanking
+        can_close = right_flanking
+
+        if char == C_UNDERSCORE:
+            can_open = left_flanking and (not right_flanking or before_is_punctuation)
+            can_close = right_flanking and (not left_flanking or after_is_punctuation)
+        elif char == C_SINGLEQUOTE or char == C_DOUBLEQUOTE:
+            can_open = left_flanking and not right_flanking
+            can_close = right_flanking
+
+        content.pos = start_pos
+        return {"num_delims": num_delims, "can_open": can_open, "can_close": can_close }
+
+    @staticmethod
+    def _remove_delimiter(parser, delim):
+        if delim.get('prev') is not None:
+            delim['prev']['next'] = delim.get('next')
+        if delim.get('next') is None:
+            # top of stack
+            parser.delimiters = delim.get('previous')
+
+    @staticmethod
+    def _remove_delimiter_between(bottom, top):
+        nxt = bottom.get('next')
+        if bottom.get('next') != top:
+            bottom['next'] = top
+            top['prev'] = bottom
+
+        # free all the delimiters between, so that they can be GC-ed
+        while nxt is not None and nxt != top:
+            tmp = nxt['next']
+            nxt['prev'] = None
+            nxt['next'] = None
+            nxt = tmp
+
+    def parse(self, parser, content, side_effect=True):
+        char = content.peek()
+        if char != '*' and char != '_':
+            return None
+
+        res = RuleDelimiter._scanDelims(content, char)
+        if res is None:
+            return res
+
+        num_delims = res.get('num_delims')
+        start_pos = content.pos
+        content.advance(num_delims)
+        contents = content.string[start_pos:content.pos]
+        node = InlineNode('text', contents)
+
+        if not side_effect:
+            return node
+
+        parser.delimiters = {
+            'char': char,
+            'num_delims': num_delims,
+            'node': node,
+            'prev': getattr(parser, 'delimiters'),
+            'next': None,
+            'can_open': res.get('can_open'),
+            'can_close': res.get('can_close'),
+            'active': True,
+         }
+
+        if parser.delimiters['prev'] is not None:
+            parser.delimiters['prev']['next'] = parser.delimiters
+
+        return node
+
+    def post_process(self, parser, stack_bottom=None):
+        """correctly close the delimiters"""
+
+        opener_bottom = {
+                '_': stack_bottom,
+                '*': stack_bottom,
+                }
+
+        use_delims = 0
+
+        # find first closer, i.e find the stack bottom
+        closer = parser.delimiters
+        while closer is not None and closer.get('prev') != stack_bottom:
+            closer = closer.get('prev')
+
+        # move forward, looking for closers, and handling each
+        while closer is not None:
+            closer_char = closer.get('char')
+            if not (closer.get('can_close') and (closer_char == '_' or closer_char == '*')):
+                closer = closer.get('next')
+                continue
+
+            # found emphasis closer, now look back for first matching
+            # opener
+            opener = closer.get('prev')
+            opener_found = False
+            while (opener is not None and opener != stack_bottom and opener != opener_bottom[closer_char]):
+                if opener.get('char') == closer_char and opener.get('can_open'):
+                    opener_found = True
+                    break
+                opener = opener.get('prev')
+            old_closer = closer
+
+            if closer_char == '*' or closer_char == '_':
+                if not opener_found:
+                    closer = closer.get('next')
+                    # set lower bound for future searches for openers
+                    openers_bottom[closer_char] = old_closer['prev']
+                    if not old_closer['can_open']:
+                        RuleDelimiter._remove_delimiter(old_closer)
+                    continue
+
+                # calculate actual number of delimiters used by closer
+                if closer['num_delims'] < 3 or opener['num_delims'] < 3:
+                    if closer['num_delims'] < opener['num_delims']:
+                        use_delims = closer['num_delims']
+                    else:
+                        use_delims = opener['num_delims']
+                else:
+                    if closer['num_delims'] % 2 == 0:
+                        use_delims = 2
+                    else:
+                        use_delims = 1
+
+                opener_inl = opener.get('node')
+                closer_inl = closer.get('node')
+
+                # remove used delimiters from stack elements and inlines
+                opener['num_delims'] -= use_delims
+                closer['num_delims'] -= use_delims
+                opener_inl.literal = opener_inl._literal[:len(opener_inl._literal)-use_delims]
+                closer_inl.literal = closer_inl._literal[:len(closer_inl._literal)-use_delims]
+
+                # build contents for new emph element
+                if use_delims == 1:
+                    emph = InlineNode('emph')
+                else:
+                    emph = InlineNode('Strong')
+
+                # move the nodes to emph element
+                tmp = opener_inl.nxt
+                while tmp and tmp != closer_inl:
+                    nxt = tmp.nxt
+                    tmp.unlink()
+                    emph.append_child(tmp)
+                    tmp = nxt
+
+                opener_inl.insert_after(emph)
+
+                # remove delimiters between opener and closer from stack
+                RuleDelimiter._remove_delimiter_between(opener, closer)
+
+                # remove opener and closer if they have 0 delimiters now
+                if opener['num_delims'] == 0:
+                    opener_inl.unlink()
+                    RuleDelimiter._remove_delimiter(opener)
+
+                if closer['num_delims'] == 0:
+                    closer_inl.unlink()
+
+                    # closer will be used for next iterator
+                    tempstack = closer['next']
+                    RuleDelimiter._remove_delimiter(closer)
+                    closer = tempstack
+                continue
+            else:
+                # can handle other delimiters here, for example quote
+                # or strike through
+                # TODO: think about how to add rules dynamically
+                pass
+
+        # Remove all delmiters
+        while parser.delimiters is not None and parser.delimiters != stack_bottom:
+            # should remove them one by one, otherwise they will not be GC-ed
+            RuleDelimiter._remove_delimiter(parser, parser.delimiters)
+
+#------------------------------------------------------------------------------
+# Rule: Link
+
+def parse_link_label(parser, content):
+    """parse link's label in format: [label] (link), return the position of the end
+    of label, None if cannot be satisfied"""
+    start_pos = content.pos
+
+    if content.peek() != '[':
+        return None
+    content.advance()
+    level = 1
+    ret = None
+
+    while not content.is_end():
+        if content.peek() == ']':
+            content.advance()
+            level -= 1
+            if level == 0:
+                break
+
+        parser.skip_token(content)
+        if content.peek() == '[':
+            level += 1
+
+    if level == 0:
+        ret = content.string[start_pos+1:content.pos-1]
+    else:
+        # restore old state
+        content.pos = start_pos
+    return ret
+
+
+re_link_title = re.compile(
+    '^(?:"(' + ESCAPED_CHAR + '|[^"\\x00])*"' +
+    '|' +
+    '\'(' + ESCAPED_CHAR + '|[^\'\\x00])*\'' +
+    '|' +
+    '\\((' + ESCAPED_CHAR + '|[^)\\x00])*\\))')
+
+def parse_link_title(parser, content):
+    """link's format: [label](link_destination "title")"""
+    title = content.match(re_link_title)
+    return unescape_string(title[1:-1]) if title else None
+
+re_link_destination_braces = re.compile(
+    '^(?:[<](?:[^ <>\\t\\n\\\\\\x00]' + '|' + ESCAPED_CHAR + '|' +
+    '\\\\)*[>])')
+re_link_destination = re.compile(
+    '^(?:' + REG_CHAR + '+|' + ESCAPED_CHAR + '|\\\\|' +
+    IN_PARENS_NOSP + ')*')
+
+def parse_link_destination(parser, content):
+    """link's format: [label](link_destination "title")"""
+    description = content.match(re_link_destination_braces)
+    if description is None:
+        description = content.match(re_link_destination)
+    else:
+        # chop off <..>
+        description = description[1:-1]
+
+    return normalize_uri(description) if description else None
+
+class RuleLink(InlineRule):
+    """Rule for parsing link"""
+
+    def parse(self, parser, content, side_effect=True):
+        label = parse_link_label(parser, content)
+        if label is None:
+            return None
+
+        start_pos = content.pos
+        matched = False
+
+        content.skip_spaces()
+        if content.peek() == '(':
+            # inline link
+            content.advance()
+
+            # [link](  <href> "title)
+            #        ^^ skip these spaces
+            content.skip_spaces()
+
+            start = content.pos
+            dest = parse_link_destination(parser, content)
+            if dest is not None:
+                # match title
+                content.skip_spaces()
+
+                # make sure there's a space before the title
+                if re.match(re_whitespace_char, content.get_char(content.pos-1)):
+                    title = parse_link_title(parser, content)
+                content.skip_spaces()
+                if content.peek() == ')':
+                    content.advance()
+                    matched = True
+        elif content.peek() == '[':
+            # reference link
+            ref_label = parse_link_label(parser, content)
+
+            # TODO: refer to actual link
+            if True:
+                content.pos = start_pos
+            else:
+                matched = True
+                dest = ''
+                title = 'title'
+        else:
+            # not matched
+            pass
+
+        if not matched:
+            current_pos = start_pos
+            return None
+
+        node = InlineNode('link')
+        node._href = dest
+        node._title = title
+        node._label = label
+        return node
+
+#------------------------------------------------------------------------------
+# Rule: Image, depends on link
+
+class RuleImage(InlineRule):
+    """Rule for parsing image"""
+    def parse(self, parser, content, side_effect=True):
+        if content.peek() != '!':
+            return None
+
+        start_pos = content.pos
+        content.advance()
+
+        rule = RuleLink()
+        node = rule.parse(parser, content, side_effect)
+        if node is None:
+            content.pos = start_pos
+            return None
+
+        node.name = 'image'
+        return node
+
+#------------------------------------------------------------------------------
+# Rule: Newline, for hard break and softbreak
+
+re_final_space = re.compile(r' *$')
+re_initial_space = re.compile(r'^ *')
+
+class RuleNewline(InlineRule):
+    """Parse newline, generate hardbreak or softbreak"""
+    def parse(self, parser, content, side_effect=True):
+        if content.peek() != '\n':
+            return None
+        content.advance()
+
+        last_child = parser.node.last_child
+        if last_child and last_child.name == 'text' and last_child._literal[-1] == ' ':
+            hardbreak = len(last_child._literal) >= 2 and last_child._literal[-1] == ' '
+            last_child._literal = re_final_space.sub('', last_child._literal)
+            if hardbreak:
+                node = InlineNode('hard-break')
+            else:
+                node = InlineNode('soft-break')
+        else:
+            node = InlineNode('soft-break')
+
+        # remove leading spaces in next line
+        content.match(re_initial_space)
+        return node
+
+#------------------------------------------------------------------------------
+# Rule: Entity. TODO: implement this
+
+#------------------------------------------------------------------------------
+# Actual parser that utilize all rules
+
+class InlineParser(object):
+    """Inline Parser"""
+    def __init__(self):
+        self.rules = [b() for b in InlineRule.__subclasses__()]
+
+    def parse_content(self, string):
+        """The main entry for inline parser, return a InlineNode whose childrens are the parsed
+        result"""
+        content = Content(string)
+        parser.node = InlineNode('parent')
+
+        while not content.is_end():
+            for rule in self.rules:
+                node = rule.parse(self, content)
+                if node is not None:
+                    ret.append_child()
+                    break
+
+        # in the end, process
+        for rule in reversed(self.rules):
+            if hasattr(rule, 'post_process'):
+                rule.post_process(self)
+
+        return parser.node
+
+    def skip_token(self, content):
+        """parse the content with all rules, but do not do all the side effects.
+        Move the cursor forward"""
+
+        # TODO: later add cache to enhance performance
+
+        while not content.is_end():
+            for rule in self.rules:
+                node = rule.parse(self, content, side_effect=False)
+                if node is not None:
+                    break
+
+
+
+#==============================================================================
 # Parser
 
 class Parser(object):
@@ -241,116 +999,6 @@ class Parser(object):
 
         self.parse_inlines()
         return self.doc
-
-
-
-#==============================================================================
-# Node & Block
-
-class Node(object):
-    """A tree node"""
-    def __init__(self, parent=None, start_line=1, start_col=0, end_line=0, end_col=0):
-        self.parent      = parent
-        self.first_child = None
-        self.last_child  = None
-        self.prv         = None
-        self.nxt         = None
-
-        self.start_line  = start_line
-        self.start_col   = start_col
-        self.end_line    = end_line
-        self.end_col     = end_col
-
-    @property
-    def tail_child(self):
-        container = self
-        while container.last_child:
-            container = container.last_child
-        return container
-
-    @property
-    def sibling(self):
-        """Get the next sibling of a node"""
-        return self.nxt
-
-    def append_child(self, node):
-        node.unlink()
-        node.parent = self
-        if self.last_child:
-            self.last_child.nxt = node
-            node.prv = self.last_child
-            self.last_child = node
-        else:
-            self.first_child = node
-            self.last_child = node
-
-    def prepend_child(self, node):
-        node.unlink()
-        node.parent = self
-        if self.first_child:
-            self.first_child.prv = node
-            node.nxt = self.first_child
-            self.first_child = node
-        else:
-            self.first_child = node
-            self.last_child = node
-
-    def unlink(self):
-        if self.prv:
-            self.prv.nxt = self.nxt
-        elif self.parent:
-            self.parent.first_child = self.nxt
-
-        if self.nxt:
-            self.nxt.prv = self.prv
-        elif self.parent:
-            self.parent.last_child = self.prv
-
-        self.prv   = None
-        self.nxt   = None
-        self.parent = None
-
-    def append_tail(self, node):
-        container = self
-        while container.last_child:
-            container = container.last_child
-        container.append_child(node)
-
-    def insert_after(self, sibling):
-        sibling.unlink()
-        sibling.nxt = self.nxt
-        if sibling.nxt:
-            sibling.nxt.prv = sibling
-
-        sibling.prv = self
-        self.nxt = sibling
-        sibling.parent = self.parent
-        if sibling.nxt is None:
-            sibling.parent.last_child = sibling
-
-    def insert_before(self, sibling):
-        sibling.unlink()
-        sibling.prv = self.prv
-        if sibling.prv:
-            sibling.prv.nxt = sibling
-        sibling.nxt = self
-        self.prv = sibling
-        sibling.parent = self.parent
-        if sibling.prv is None:
-            sibling.parent.first_child = sibling
-
-    def __iter__(self):
-        self.cursor = self.first_child
-        return self
-
-    def next(self):
-        """Iterate through all its children"""
-        if self.cursor:
-            ret = self.cursor
-            self.cursor = self.cursor.nxt
-            return ret
-        else:
-            raise StopIteration
 
 #==============================================================================
 # Various blocks
@@ -1060,653 +1708,6 @@ class BlockFactory(object):
             if ret is not None:
                 return ret
         return None
-
-#==============================================================================
-# Inline Parser
-
-re_spnl = re.compile(r'^ *(?:\n *)?')
-
-class Content(object):
-    """Utility Class for string content"""
-    compiled_re_type = type(re.compile('compiled'))
-
-    def __init__(self, string):
-        self.string = string
-        self.pos = 0
-
-    def peek(self, offset=0):
-        """peek the character `offset` after on the current string"""
-        try:
-            return self.string[self.offset + offset]
-        except:
-            return None
-
-    def get_char(self, offset=0):
-        """get the character on the current string at `offset`"""
-        try:
-            return self.string[offset]
-        except:
-            return None
-
-    @property
-    def rest(self):
-        """Get the rest string content"""
-        return self.string[self.offset:]
-
-    def is_end(self):
-        return self.pos >= len(string)
-
-    def advance(self, num=1):
-        self.pos += num
-
-    def match(self, regex, reCompileFlag=0):
-        """If re matches at current position in the subject, advance the position
-        in string content and return the match; otherwise return None"""
-        match = None
-
-        if isinstance(regex, Content.compiled_re_type):
-            match = regex.search(self.string[self.pos:])
-        else:
-            match = re.search(self.string[self.pos:], flags = reCompileFlag)
-
-        if not match:
-            return None
-
-        self.pos += match.end(0)
-        return match.group()
-
-    def skip_spaces(self):
-        """Parse zero or more space characters, including at most one newline"""
-        self.match(re_spnl)
-
-
-class InlineRule(object):
-    """Base Class for rules that parses inline elements"""
-    def parse(self, parser, content, side_effect=True):
-        """Try to parse the content, return None if cannot parse current situation
-        Else return an InlineNode.
-
-        The parse method should modify the content's position accordingly
-
-        If `side_effect` is False, do not do anything but modify the content's cursor
-        position."""
-        return None
-
-
-class InlineParser(object):
-    """Inline Parser"""
-    def __init__(self):
-        pass
-
-    def parse_content(self, string):
-        """The main entry for inline parser, return a InlineNode whose childrens are the parsed
-        result"""
-        content = Content(string)
-        parser.node = InlineNode('parent')
-
-        while not content.is_end():
-            for rule in self.rules:
-                node = rule.parse(self, content)
-                if node is not None:
-                    ret.append_child()
-                    break
-
-        # in the end, process
-        for rule in reversed(self.rules):
-            if hasattr(rule, 'post_process'):
-                rule.post_process(self)
-
-        return parser.node
-
-    def skip_token(self, content):
-        """parse the content with all rules, but do not do all the side effects.
-        Move the cursor forward"""
-
-        # TODO: later add cache to enhance performance
-
-        while not content.is_end():
-            for rule in self.rules:
-                node = rule.parse(self, content, side_effect=False)
-                if node is not None:
-                    break
-
-
-
-#------------------------------------------------------------------------------
-# Common regex
-
-ESCAPABLE = '[!"#$%&\'()*+,./:;<=>?@[\\\\\\]^_`{|}~-]'
-
-re_whitespace_char = re.compile(r'\s')
-re_whitespace = re.compile(r'\s+')
-
-#------------------------------------------------------------------------------
-# Helper functions
-def normalize_uri(uri):
-    # TODO: implement this
-    return uri
-
-#------------------------------------------------------------------------------
-# Rule: Escape characters
-
-re_escapable = re.compile('^' + ESCAPABLE)
-
-class RuleEscape(InlineRule):
-    """Parse Escaped characters, return either the escaped character, a hard
-    line break, or a literal backslash."""
-
-    def parse(self, parser, content, side_effect=True):
-        if content.peek() != '\\':
-            return None
-
-        content.advance()
-
-        next_char = content.peek()
-        if next_char == '\n':
-            content.advance()
-            return InlineNode('hard-break')
-        elif next_char is not None and content.match(re_escapable):
-            content.advance()
-            return InlineNode('text', next_char)
-        else:
-            return InlineNode('text', '\\')
-
-#------------------------------------------------------------------------------
-# Rule: Code Span
-
-re_ticks = re.compile(r'`+')
-re_ticks_here = re.compile(r'^`+')
-
-class RuleCodeSpan(InlineRule):
-    """Parse backticks as code span"""
-
-    def parse(self, parser, content, side_effect=True):
-        ticks = content.match(re_ticks_here)
-        if ticks is None:
-            return None
-
-        after_open_ticks = content.pos
-
-        # find the closing ticks
-        matched = content.match(re_ticks)
-        while matched is not None:
-            if matched == ticks:
-                # found matched
-                node = InlineNode('code')
-                literal = content.string[after_open_ticks:self.pos - len(ticks)]
-                literal = re_whitespace.sub(' ', literal.strip())
-                node._literal = literal
-                return node
-            matched = content.match(re_ticks)
-
-        # not matched, resume position
-        self.pos = after_open_ticks
-        return InlineNode('text', ticks)
-
-#------------------------------------------------------------------------------
-# Rule: Auto Link
-
-re_email_autolink = re.compile(
-    r"^<([a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9]"
-    r"(?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
-    r"(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*)>")
-re_autolink = re.compile(
-    r'^<[A-Za-z][A-Za-z0-9.+-]{1,31}:[^<>\x00-\x20]*>',
-    re.IGNORECASE)
-
-class RuleAutolink(InlineRule):
-    """parse auto link"""
-
-    def parse(self, parser, content, side_effect=True):
-        m_email = content.match(re_email_autolink)
-        match = None
-        if m_email:
-            # match email
-            match = m_email
-        else:
-            m_link = content.match(re_autolink)
-            if m_link:
-                match = m_link
-            else:
-                return None
-
-        dest = match[1:-1]
-        node = InlineNode('link')
-        node._destination = normalize_uri('mailto:' + dest)
-        node._title = ''
-        node.append_child(InlineNode('text', dest))
-        return node
-
-#------------------------------------------------------------------------------
-# Rule: HTML TAG
-
-TAGNAME = '[A-Za-z][A-Za-z0-9-]*'
-ATTRIBUTENAME = '[a-zA-Z_:][a-zA-Z0-9:._-]*'
-UNQUOTEDVALUE = "[^\"'=<>`\\x00-\\x20]+"
-SINGLEQUOTEDVALUE = "'[^']*'"
-DOUBLEQUOTEDVALUE = '"[^"]*"'
-ATTRIBUTEVALUE = "(?:" + UNQUOTEDVALUE + "|" + SINGLEQUOTEDVALUE + \
-    "|" + DOUBLEQUOTEDVALUE + ")"
-ATTRIBUTEVALUESPEC = "(?:" + "\\s*=" + "\\s*" + ATTRIBUTEVALUE + ")"
-ATTRIBUTE = "(?:" + "\\s+" + ATTRIBUTENAME + ATTRIBUTEVALUESPEC + "?)"
-OPENTAG = "<" + TAGNAME + ATTRIBUTE + "*" + "\\s*/?>"
-CLOSETAG = "</" + TAGNAME + "\\s*[>]"
-HTMLCOMMENT = '<!---->|<!--(?:-?[^>-])(?:-?[^-])*-->'
-PROCESSINGINSTRUCTION = "[<][?].*?[?][>]"
-DECLARATION = "<![A-Z]+" + "\\s+[^>]*>"
-CDATA = '<!\\[CDATA\\[[\\s\\S]*?\\]\\]>'
-HTMLTAG = "(?:" + OPENTAG + "|" + CLOSETAG + "|" + HTMLCOMMENT + "|" + \
-    PROCESSINGINSTRUCTION + "|" + DECLARATION + "|" + CDATA + ")"
-re_html_tag = re.compile('^' + HTMLTAG, re.IGNORECASE)
-
-
-class RuleHTMLTag(InlineRule):
-    """parse inline HTML tag"""
-
-    def parse(self, parser, content, side_effect=True):
-        match = content.match(re_html_tag)
-        if match is None:
-            return None
-        else:
-            node = InlineNode('html-inline')
-            node._literal = match
-            return node
-
-#------------------------------------------------------------------------------
-# Rule: Delimiters, i.e. *em* **strong**
-
-re_punctuation = re.compile(
-    r'^[\u2000-\u206F\u2E00-\u2E7F\\' + "'" + '!"#\$%&\(\)'
-    r'\*\+,\-\.\/:;<=>\?@\[\]\^_`\{\|\}~]')
-
-class RuleDelimiter(InlineRule):
-    """parse delimiter"""
-
-    @staticmethod
-    def _scanDelims(content, char):
-        """Scan a sequence of characters == char, and return information about
-        the number of delimiters and whether they are positioned such that they
-        can open and/or close emphasis or strong emphasis. A utility function for
-        strong/emph parsing"""
-        num_delims         = 0
-        first_close_delims = 0
-        char_before        = char_after = None
-        start_pos          = content.pos
-
-        char_before = '\n' if content.pos == 0 else content.get_char(content.pos - 1)
-
-        if char == C_SINGLEQUOTE or char == C_DOUBLEQUOTE:
-            num_delims += 1
-            content.pos += 1
-        else:
-            while content.peek() == char:
-                num_delims += 1
-                content.pos += 1
-
-        if num_delims == 0:
-            return None
-
-        char_after = content.peek()
-        char_after = char_after if char_after else '\n'
-
-        after_is_whitespace   = re_whitespacechar.match(char_after)
-        after_is_punctuation  = re_punctuation.match(char_after)
-        before_is_whitespace  = re_whitespacechar.match(char_before)
-        before_is_punctuation = re_punctuation.match(char_before)
-
-        left_flanking = (not after_is_whitespace) and not (after_is_punctuation and
-                not before_is_whitespace and not before_is_punctuation)
-        right_flanking = (not before_is_whitespace) and not (before_is_punctuation and
-                not after_is_whitespace and not after_is_punctuation)
-
-        can_open = left_flanking
-        can_close = right_flanking
-
-        if char == C_UNDERSCORE:
-            can_open = left_flanking and (not right_flanking or before_is_punctuation)
-            can_close = right_flanking and (not left_flanking or after_is_punctuation)
-        elif char == C_SINGLEQUOTE or char == C_DOUBLEQUOTE:
-            can_open = left_flanking and not right_flanking
-            can_close = right_flanking
-
-        content.pos = start_pos
-        return {"num_delims": num_delims, "can_open": can_open, "can_close": can_close }
-
-    @staticmethod
-    def _remove_delimiter(parser, delim):
-        if delim.get('prev') is not None:
-            delim['prev']['next'] = delim.get('next')
-        if delim.get('next') is None:
-            # top of stack
-            parser.delimiters = delim.get('previous')
-
-    @staticmethod
-    def _remove_delimiter_between(bottom, top):
-        nxt = bottom.get('next')
-        if bottom.get('next') != top:
-            bottom['next'] = top
-            top['prev'] = bottom
-
-        # free all the delimiters between, so that they can be GC-ed
-        while nxt is not None and nxt != top:
-            tmp = nxt['next']
-            nxt['prev'] = None
-            nxt['next'] = None
-            nxt = tmp
-
-    def parse(self, parser, content, side_effect=True):
-        char = content.peek()
-        if char != '*' and char != '_':
-            return None
-
-        res = RuleDelimiter._scanDelims(content, char)
-        if res is None:
-            return res
-
-        num_delims = res.get('num_delims')
-        start_pos = content.pos
-        content.advance(num_delims)
-        contents = content.string[start_pos:content.pos]
-        node = InlineNode('text', contents)
-
-        if not side_effect:
-            return node
-
-        parser.delimiters = {
-            'char': char,
-            'num_delims': num_delims,
-            'node': node,
-            'prev': getattr(parser, 'delimiters'),
-            'next': None,
-            'can_open': res.get('can_open'),
-            'can_close': res.get('can_close'),
-            'active': True,
-         }
-
-        if parser.delimiters['prev'] is not None:
-            parser.delimiters['prev']['next'] = parser.delimiters
-
-        return node
-
-    def post_process(self, parser, stack_bottom=None):
-        """correctly close the delimiters"""
-
-        opener_bottom = {
-                '_': stack_bottom,
-                '*': stack_bottom,
-                }
-
-        use_delims = 0
-
-        # find first closer, i.e find the stack bottom
-        closer = parser.delimiters
-        while closer is not None and closer.get('prev') != stack_bottom:
-            closer = closer.get('prev')
-
-        # move forward, looking for closers, and handling each
-        while closer is not None:
-            closer_char = closer.get('char')
-            if not (closer.get('can_close') and (closer_char == '_' or closer_char == '*')):
-                closer = closer.get('next')
-                continue
-
-            # found emphasis closer, now look back for first matching
-            # opener
-            opener = closer.get('prev')
-            opener_found = False
-            while (opener is not None and opener != stack_bottom and opener != opener_bottom[closer_char]):
-                if opener.get('char') == closer_char and opener.get('can_open'):
-                    opener_found = True
-                    break
-                opener = opener.get('prev')
-            old_closer = closer
-
-            if closer_char == '*' or closer_char == '_':
-                if not opener_found:
-                    closer = closer.get('next')
-                    # set lower bound for future searches for openers
-                    openers_bottom[closer_char] = old_closer['prev']
-                    if not old_closer['can_open']:
-                        RuleDelimiter._remove_delimiter(old_closer)
-                    continue
-
-                # calculate actual number of delimiters used by closer
-                if closer['num_delims'] < 3 or opener['num_delims'] < 3:
-                    if closer['num_delims'] < opener['num_delims']:
-                        use_delims = closer['num_delims']
-                    else:
-                        use_delims = opener['num_delims']
-                else:
-                    if closer['num_delims'] % 2 == 0:
-                        use_delims = 2
-                    else:
-                        use_delims = 1
-
-                opener_inl = opener.get('node')
-                closer_inl = closer.get('node')
-
-                # remove used delimiters from stack elements and inlines
-                opener['num_delims'] -= use_delims
-                closer['num_delims'] -= use_delims
-                opener_inl.literal = opener_inl._literal[:len(opener_inl._literal)-use_delims]
-                closer_inl.literal = closer_inl._literal[:len(closer_inl._literal)-use_delims]
-
-                # build contents for new emph element
-                if use_delims == 1:
-                    emph = InlineNode('emph')
-                else:
-                    emph = InlineNode('Strong')
-
-                # move the nodes to emph element
-                tmp = opener_inl.nxt
-                while tmp and tmp != closer_inl:
-                    nxt = tmp.nxt
-                    tmp.unlink()
-                    emph.append_child(tmp)
-                    tmp = nxt
-
-                opener_inl.insert_after(emph)
-
-                # remove delimiters between opener and closer from stack
-                RuleDelimiter._remove_delimiter_between(opener, closer)
-
-                # remove opener and closer if they have 0 delimiters now
-                if opener['num_delims'] == 0:
-                    opener_inl.unlink()
-                    RuleDelimiter._remove_delimiter(opener)
-
-                if closer['num_delims'] == 0:
-                    closer_inl.unlink()
-
-                    # closer will be used for next iterator
-                    tempstack = closer['next']
-                    RuleDelimiter._remove_delimiter(closer)
-                    closer = tempstack
-                continue
-            else:
-                # can handle other delimiters here, for example quote
-                # or strike through
-                # TODO: think about how to add rules dynamically
-                pass
-
-        # Remove all delmiters
-        while parser.delimiters is not None and parser.delimiters != stack_bottom:
-            # should remove them one by one, otherwise they will not be GC-ed
-            RuleDelimiter._remove_delimiter(parser, parser.delimiters)
-
-#------------------------------------------------------------------------------
-# Rule: Link
-
-def parse_link_label(parser, content):
-    """parse link's label in format: [label] (link), return the position of the end
-    of label, None if cannot be satisfied"""
-    start_pos = content.pos
-
-    if content.peek() != '[':
-        return None
-    content.advance()
-    level = 1
-    ret = None
-
-    while not content.is_end():
-        if content.peek() == ']':
-            content.advance()
-            level -= 1
-            if level == 0:
-                break
-
-        parser.skip_token(content)
-        if content.peek() == '[':
-            level += 1
-
-    if level == 0:
-        ret = content.string[start_pos+1:content.pos-1]
-    else:
-        # restore old state
-        content.pos = start_pos
-    return ret
-
-
-re_link_title = re.compile(
-    '^(?:"(' + ESCAPED_CHAR + '|[^"\\x00])*"' +
-    '|' +
-    '\'(' + ESCAPED_CHAR + '|[^\'\\x00])*\'' +
-    '|' +
-    '\\((' + ESCAPED_CHAR + '|[^)\\x00])*\\))')
-
-def parse_link_title(parser, content):
-    """link's format: [label](link_destination "title")"""
-    title = content.match(re_link_title)
-    return unescape_string(title[1:-1]) if title else None
-
-re_link_destination_braces = re.compile(
-    '^(?:[<](?:[^ <>\\t\\n\\\\\\x00]' + '|' + ESCAPED_CHAR + '|' +
-    '\\\\)*[>])')
-re_link_destination = re.compile(
-    '^(?:' + REG_CHAR + '+|' + ESCAPED_CHAR + '|\\\\|' +
-    IN_PARENS_NOSP + ')*')
-
-def parse_link_destination(parser, content):
-    """link's format: [label](link_destination "title")"""
-    description = content.match(re_link_destination_braces)
-    if description is None:
-        description = content.match(re_link_destination)
-    else:
-        # chop off <..>
-        description = description[1:-1]
-
-    return normalize_uri(description) if description else None
-
-class RuleLink(InlineRule):
-    """Rule for parsing link"""
-
-    def parse(self, parser, content, side_effect=True):
-        label = parse_link_label(parser, content)
-        if label is None:
-            return None
-
-        start_pos = content.pos
-        matched = False
-
-        content.skip_spaces()
-        if content.peek() == '(':
-            # inline link
-            content.advance()
-
-            # [link](  <href> "title)
-            #        ^^ skip these spaces
-            content.skip_spaces()
-
-            start = content.pos
-            dest = parse_link_destination(parser, content)
-            if dest is not None:
-                # match title
-                content.skip_spaces()
-
-                # make sure there's a space before the title
-                if re.match(re_whitespace_char, content.get_char(content.pos-1)):
-                    title = parse_link_title(parser, content)
-                content.skip_spaces()
-                if content.peek() == ')':
-                    content.advance()
-                    matched = True
-        elif content.peek() == '[':
-            # reference link
-            ref_label = parse_link_label(parser, content)
-
-            # TODO: refer to actual link
-            if True:
-                content.pos = start_pos
-            else:
-                matched = True
-                dest = ''
-                title = 'title'
-        else:
-            # not matched
-            pass
-
-        if not matched:
-            current_pos = start_pos
-            return None
-
-        node = InlineNode('link')
-        node._href = dest
-        node._title = title
-        node._label = label
-        return node
-
-#------------------------------------------------------------------------------
-# Rule: Image, depends on link
-
-class RuleImage(InlineRule):
-    """Rule for parsing image"""
-    def parse(self, parser, content, side_effect=True):
-        if content.peek() != '!':
-            return None
-
-        start_pos = content.pos
-        content.advance()
-
-        rule = RuleLink()
-        node = rule.parse(parser, content, side_effect)
-        if node is None:
-            content.pos = start_pos
-            return None
-
-        node.name = 'image'
-        return node
-
-#------------------------------------------------------------------------------
-# Rule: Newline, for hard break and softbreak
-
-re_final_space = re.compile(r' *$')
-re_initial_space = re.compile(r'^ *')
-
-class RuleNewline(InlineRule):
-    """Parse newline, generate hardbreak or softbreak"""
-    def parse(self, parser, content, side_effect=True):
-        if content.peek() != '\n':
-            return None
-        content.advance()
-
-        last_child = parser.node.last_child
-        if last_child and last_child.name == 'text' and last_child._literal[-1] == ' ':
-            hardbreak = len(last_child._literal) >= 2 and last_child._literal[-1] == ' '
-            last_child._literal = re_final_space.sub('', last_child._literal)
-            if hardbreak:
-                node = InlineNode('hard-break')
-            else:
-                node = InlineNode('soft-break')
-        else:
-            node = InlineNode('soft-break')
-
-        # remove leading spaces in next line
-        content.match(re_initial_space)
-        return node
-
-#------------------------------------------------------------------------------
-# Rule: Entity. TODO: implement this
-
 #==============================================================================
 x = Parser()
 string = """
