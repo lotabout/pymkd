@@ -10,6 +10,9 @@ CODE_INDENT = 4
 C_SPACE = ' '
 C_TAB = '\t'
 C_GREATERTHAN = '>'
+C_SINGLEQUOTE = "'"
+C_DOUBLEQUOTE = '"'
+C_UNDERSCORE = '_'
 
 #==============================================================================
 # Helpers
@@ -225,6 +228,17 @@ class Node(object):
         else:
             raise StopIteration
 
+    def _repr(self, level=0):
+        ret = []
+        ret.append('    '*level + '%s[%d, %d, %d, %d] [%s]' % (self.name,self.start_line, self.start_col, self.end_line, self.end_col, self._get_content()))
+        for child in self:
+            ret.append(child._repr(level+1))
+        return '\n'.join(ret)
+
+    def __repr__(self):
+        return self._repr()
+
+
 
 #==============================================================================
 # Inline Parser
@@ -242,8 +256,8 @@ class Content(object):
     def peek(self, offset=0):
         """peek the character `offset` after on the current string"""
         try:
-            return self.string[self.offset + offset]
-        except:
+            return self.string[self.pos + offset]
+        except IndexError:
             return None
 
     def get_char(self, offset=0):
@@ -256,7 +270,7 @@ class Content(object):
     @property
     def rest(self):
         """Get the rest string content"""
-        return self.string[self.offset:]
+        return self.string[self.pos:]
 
     def is_end(self):
         return self.pos >= len(string)
@@ -302,6 +316,9 @@ class InlineRule(object):
 # Common regex
 
 ESCAPABLE = '[!"#$%&\'()*+,./:;<=>?@[\\\\\\]^_`{|}~-]'
+ESCAPED_CHAR = '\\\\' + ESCAPABLE
+REG_CHAR = '[^\\\\()\\x00-\\x20]'
+IN_PARENS_NOSP = '\\((' + REG_CHAR + '|' + ESCAPED_CHAR + '|\\\\)*\\)'
 
 re_whitespace_char = re.compile(r'\s')
 re_whitespace = re.compile(r'\s+')
@@ -475,9 +492,9 @@ class RuleDelimiter(InlineRule):
         char_after = content.peek()
         char_after = char_after if char_after else '\n'
 
-        after_is_whitespace   = re_whitespacechar.match(char_after)
+        after_is_whitespace   = re_whitespace_char.match(char_after)
         after_is_punctuation  = re_punctuation.match(char_after)
-        before_is_whitespace  = re_whitespacechar.match(char_before)
+        before_is_whitespace  = re_whitespace_char.match(char_before)
         before_is_punctuation = re_punctuation.match(char_before)
 
         left_flanking = (not after_is_whitespace) and not (after_is_punctuation and
@@ -542,7 +559,7 @@ class RuleDelimiter(InlineRule):
             'char': char,
             'num_delims': num_delims,
             'node': node,
-            'prev': getattr(parser, 'delimiters'),
+            'prev': getattr(parser, 'delimiters', None),
             'next': None,
             'can_open': res.get('can_open'),
             'can_close': res.get('can_close'),
@@ -593,7 +610,7 @@ class RuleDelimiter(InlineRule):
                     # set lower bound for future searches for openers
                     openers_bottom[closer_char] = old_closer['prev']
                     if not old_closer['can_open']:
-                        RuleDelimiter._remove_delimiter(old_closer)
+                        RuleDelimiter._remove_delimiter(parser, old_closer)
                     continue
 
                 # calculate actual number of delimiters used by closer
@@ -639,14 +656,14 @@ class RuleDelimiter(InlineRule):
                 # remove opener and closer if they have 0 delimiters now
                 if opener['num_delims'] == 0:
                     opener_inl.unlink()
-                    RuleDelimiter._remove_delimiter(opener)
+                    RuleDelimiter._remove_delimiter(parser, opener)
 
                 if closer['num_delims'] == 0:
                     closer_inl.unlink()
 
                     # closer will be used for next iterator
                     tempstack = closer['next']
-                    RuleDelimiter._remove_delimiter(closer)
+                    RuleDelimiter._remove_delimiter(parser, closer)
                     closer = tempstack
                 continue
             else:
@@ -834,6 +851,20 @@ class RuleNewline(InlineRule):
 # Rule: Entity. TODO: implement this
 
 #------------------------------------------------------------------------------
+# Rule: Plain Text
+re_main = re.compile(r'^[^\n`\[\]\\!<&*_\'"]+', re.MULTILINE)
+
+class RuleText(InlineRule):
+    """Plain Text"""
+    def parse(self, parser, content, side_effect=True):
+        match = content.match(re_main)
+        if not match:
+            return None
+
+        node = InlineNode('text', match)
+        return node
+
+#------------------------------------------------------------------------------
 # Actual parser that utilize all rules
 
 class InlineParser(object):
@@ -845,13 +876,13 @@ class InlineParser(object):
         """The main entry for inline parser, return a InlineNode whose childrens are the parsed
         result"""
         content = Content(string)
-        parser.node = InlineNode('parent')
+        self.node = InlineNode('parent')
 
         while not content.is_end():
             for rule in self.rules:
                 node = rule.parse(self, content)
                 if node is not None:
-                    ret.append_child()
+                    self.node.append_child(node)
                     break
 
         # in the end, process
@@ -859,7 +890,7 @@ class InlineParser(object):
             if hasattr(rule, 'post_process'):
                 rule.post_process(self)
 
-        return parser.node
+        return self.node
 
     def skip_token(self, content):
         """parse the content with all rules, but do not do all the side effects.
@@ -874,7 +905,6 @@ class InlineParser(object):
                     break
 
 
-
 #==============================================================================
 # Parser
 
@@ -886,6 +916,7 @@ class Parser(object):
         self.doc                    = BlockFactory.make_block('document', 0, 0)
         self.last_matched_container = None
         self.tip                    = self.doc # inner most block
+        self.inline_parser          = InlineParser()
 
     def close(self, block):
         block.end_line = self.line.line_num
@@ -985,9 +1016,24 @@ class Parser(object):
                 block.append_tail(child)
             return block
 
-    def parse_inlines(self):
+    def parse_inlines(self, root):
         """Parse the generated AST for inline elements"""
-        pass
+
+        # handle current node
+        inlines = None
+        if root.name == 'paragraph':
+            inlines = self.inline_parser.parse_content('\n'.join(root.lines))
+        elif root.name == 'heading':
+            inlines = self.inline_parser.parse_content('\n'.join(root.lines))
+
+        if inlines:
+            root.lines = []
+            for inline in inlines:
+                root.append_child(inline)
+
+        if root.type == 'container' or root.type == 'root':
+            for c in root:
+                self.parse_inlines(c)
 
     def parse(self, input):
         """parse the input string and return the AST"""
@@ -997,7 +1043,7 @@ class Parser(object):
         while self.tip:
             self.close(self.tip)
 
-        self.parse_inlines()
+        self.parse_inlines(self.doc)
         return self.doc
 
 #==============================================================================
@@ -1049,16 +1095,6 @@ class Block(Node):
     def _get_content(self):
         return '|'.join(self.lines)
 
-    def _repr(self, level=0):
-        ret = []
-        ret.append('    '*level + '%s[%d, %d, %d, %d] [%s]' % (self.name,self.start_line, self.start_col, self.end_line, self.end_col, self._get_content()))
-        for child in self:
-            ret.append(child._repr(level+1))
-        return '\n'.join(ret)
-
-    def __repr__(self):
-        return self._repr()
-
 
 class BlockParser(object):
     """Parse a line for block"""
@@ -1077,6 +1113,9 @@ class InlineNode(Node):
         super(InlineNode, self).__init__()
         self.name = name
         self._literal = literal
+
+    def _get_content(self):
+        return self._literal
 
 #------------------------------------------------------------------------------
 class Document(Block):
@@ -1750,6 +1789,7 @@ First heading
 Second Heading
 ---
 aaaaaaa"""
+string = "[xxx](http://www.baidu.com)aaaa *b* "
 x.parse(string)
 print(x.doc)
 
