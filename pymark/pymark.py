@@ -2,6 +2,28 @@
 # -*- coding: utf-8 -*-
 
 import re
+import sys
+
+try:
+    from urllib.parse import quote
+except ImportError:
+    from urllib import quote
+
+try:
+    from urllib.parse import quote
+except ImportError:
+    from urllib import quote
+
+if sys.version_info >= (3, 0):
+    if sys.version_info >= (3, 4):
+        import html.parser
+        HTMLunescape = html.parser.HTMLParser().unescape
+    else:
+        from .entitytrans import _unescape
+        HTMLunescape = _unescape
+else:
+    import entitytrans
+    HTMLunescape = entitytrans._unescape
 
 #==============================================================================
 # Globals
@@ -16,9 +38,11 @@ C_UNDERSCORE = '_'
 
 #==============================================================================
 # Helpers
-
 def is_space_or_tab(character):
     return character == C_SPACE or character == C_TAB
+
+#==============================================================================
+# Line Object
 
 class Line(object):
     """A line"""
@@ -119,6 +143,64 @@ class Line(object):
             return self.line[offset]
         except:
             return None
+#------------------------------------------------------------------------------
+# Content for inline parser
+
+re_spnl = re.compile(r'^ *(?:\n *)?')
+
+class Content(object):
+    """Utility Class for string content"""
+    compiled_re_type = type(re.compile('compiled'))
+
+    def __init__(self, string):
+        self.string = string
+        self.pos = 0
+
+    def peek(self, offset=0):
+        """peek the character `offset` after on the current string"""
+        try:
+            return self.string[self.pos + offset]
+        except IndexError:
+            return None
+
+    def get_char(self, offset=0):
+        """get the character on the current string at `offset`"""
+        try:
+            return self.string[offset]
+        except:
+            return None
+
+    @property
+    def rest(self):
+        """Get the rest string content"""
+        return self.string[self.pos:]
+
+    def is_end(self):
+        return self.pos >= len(self.string)
+
+    def advance(self, num=1):
+        self.pos += num
+
+    def match(self, regex, reCompileFlag=0):
+        """If re matches at current position in the subject, advance the position
+        in string content and return the match; otherwise return None"""
+        match = None
+
+        if isinstance(regex, Content.compiled_re_type):
+            match = regex.search(self.string[self.pos:])
+        else:
+            match = re.search(self.string[self.pos:], flags = reCompileFlag)
+
+        if not match:
+            return None
+
+        self.pos += match.end(0)
+        return match.group()
+
+    def skip_spaces(self):
+        """Parse zero or more space characters, including at most one newline"""
+        self.match(re_spnl)
+
 
 #==============================================================================
 # Node
@@ -219,7 +301,7 @@ class Node(object):
         self.cursor = self.first_child
         return self
 
-    def next(self):
+    def __next__(self):
         """Iterate through all its children"""
         if self.cursor:
             ret = self.cursor
@@ -227,6 +309,9 @@ class Node(object):
             return ret
         else:
             raise StopIteration
+
+    # python 2 need this
+    next = __next__
 
     def _repr(self, level=0):
         ret = []
@@ -242,61 +327,6 @@ class Node(object):
 
 #==============================================================================
 # Inline Parser
-
-re_spnl = re.compile(r'^ *(?:\n *)?')
-
-class Content(object):
-    """Utility Class for string content"""
-    compiled_re_type = type(re.compile('compiled'))
-
-    def __init__(self, string):
-        self.string = string
-        self.pos = 0
-
-    def peek(self, offset=0):
-        """peek the character `offset` after on the current string"""
-        try:
-            return self.string[self.pos + offset]
-        except IndexError:
-            return None
-
-    def get_char(self, offset=0):
-        """get the character on the current string at `offset`"""
-        try:
-            return self.string[offset]
-        except:
-            return None
-
-    @property
-    def rest(self):
-        """Get the rest string content"""
-        return self.string[self.pos:]
-
-    def is_end(self):
-        return self.pos >= len(self.string)
-
-    def advance(self, num=1):
-        self.pos += num
-
-    def match(self, regex, reCompileFlag=0):
-        """If re matches at current position in the subject, advance the position
-        in string content and return the match; otherwise return None"""
-        match = None
-
-        if isinstance(regex, Content.compiled_re_type):
-            match = regex.search(self.string[self.pos:])
-        else:
-            match = re.search(self.string[self.pos:], flags = reCompileFlag)
-
-        if not match:
-            return None
-
-        self.pos += match.end(0)
-        return match.group()
-
-    def skip_spaces(self):
-        """Parse zero or more space characters, including at most one newline"""
-        self.match(re_spnl)
 
 
 class InlineRule(object):
@@ -320,17 +350,54 @@ ESCAPED_CHAR = '\\\\' + ESCAPABLE
 REG_CHAR = '[^\\\\()\\x00-\\x20]'
 IN_PARENS_NOSP = '\\((' + REG_CHAR + '|' + ESCAPED_CHAR + '|\\\\)*\\)'
 
+ENTITY = '&(?:#x[a-f0-9]{1,8}|#[0-9]{1,8}|[a-z][a-z0-9]{1,31});'
+re_entity_or_escaped_char = re.compile( '\\\\' + ESCAPABLE + '|' + ENTITY, re.IGNORECASE)
+
 re_whitespace_char = re.compile(r'\s')
 re_whitespace = re.compile(r'\s+')
+re_backslash_or_amp = re.compile(r'[\\&]')
 
 #------------------------------------------------------------------------------
 # Helper functions
-def normalize_uri(uri):
-    # TODO: implement this
-    return uri
 
-def unescape_string(string):
-    return string
+# taken from CommonMark.py
+# https://github.com/rtfd/CommonMark-py/blob/master/CommonMark/common.py
+def normalize_uri(uri):
+    try:
+        return quote(uri, safe=str('/@:+?=&()%#*,'))
+    except KeyError:
+        # Python 2 throws a KeyError sometimes
+        try:
+            return quote(uri.encode('utf-8'), safe=str('/@:+?=&()%#*,'))
+        except UnicodeDecodeError:
+            # Python 2 also throws a UnicodeDecodeError, complaining about
+            # the width of the "safe" string. Removing this parameter
+            # solves the issue, but yields overly aggressive quoting, but we
+            # can correct those errors manually.
+            s = quote(uri.encode('utf-8'))
+            s = re.sub(r'%40', '@', s)
+            s = re.sub(r'%3A', ':', s)
+            s = re.sub(r'%2B', '+', s)
+            s = re.sub(r'%3F', '?', s)
+            s = re.sub(r'%3D', '=', s)
+            s = re.sub(r'%26', '&', s)
+            s = re.sub(r'%28', '(', s)
+            s = re.sub(r'%29', ')', s)
+            s = re.sub(r'%25', '%', s)
+            s = re.sub(r'%23', '#', s)
+            s = re.sub(r'%2A', '*', s)
+            s = re.sub(r'%2C', ',', s)
+            return s
+
+def unescape_char(s):
+    return s[1] if s[0] == '\\' else HTMLunescape(s)
+
+def unescape_string(s):
+    """Replace entities and backslash escapes with literal characters."""
+    if re.search(re_backslash_or_amp, s):
+        return re.sub(re_entity_or_escaped_char, lambda m: unescape_char(m.group()), s)
+    else:
+        return s
 
 #------------------------------------------------------------------------------
 # Rule: Escape characters
@@ -858,7 +925,14 @@ class RuleNewline(InlineRule):
         return node
 
 #------------------------------------------------------------------------------
-# Rule: Entity. TODO: implement this
+# Rule: Entity.
+re_entity_here = re.compile('^' + ENTITY, re.IGNORECASE)
+
+class RuleEntity(InlineRule):
+    """Entity"""
+    def parse(self, parser, content, side_effect=True):
+        match = content.match(re_entity_here)
+        return InlineNode('text', HTMLunescape(match)) if match else None
 
 #------------------------------------------------------------------------------
 # Rule: Plain Text
@@ -1764,6 +1838,10 @@ class BlockFactory(object):
             if ret is not None:
                 return ret
         return None
+
+#==============================================================================
+# HTML Renderer
+
 #==============================================================================
 x = Parser()
 string = """
@@ -1808,6 +1886,19 @@ Second Heading
 aaaaaaa"""
 string = "![***em* strong**](http://www.baidu.com 'title') aaaa *b* "
 string = """# *x*"""
+
+string = """
+&nbsp; &amp; &copy; &AElig; &Dcaron;
+&frac34; &HilbertSpace; &DifferentialD;
+&ClockwiseContourIntegral; &ngE;
+"""
+
+string = """
+```
+``` a
+```
+"""
+
 x.parse(string)
 print(x.doc)
 
