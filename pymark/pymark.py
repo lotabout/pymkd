@@ -424,12 +424,12 @@ class RuleEscape(InlineRule):
         next_char = content.peek()
         if next_char == '\n':
             content.advance()
-            return InlineNode('hard-break')
+            return InlineNode('HardBreak')
         elif next_char is not None and content.match(re_escapable):
             content.advance()
-            return InlineNode('text', next_char)
+            return InlineNode('Text', next_char)
         else:
-            return InlineNode('text', '\\')
+            return InlineNode('Text', '\\')
 
 #------------------------------------------------------------------------------
 # Rule: Code Span
@@ -452,7 +452,7 @@ class RuleCodeSpan(InlineRule):
         while matched is not None:
             if matched == ticks:
                 # found matched
-                node = InlineNode('code')
+                node = InlineNode('CodeSpan')
                 literal = content.string[after_open_ticks:self.pos - len(ticks)]
                 literal = re_whitespace.sub(' ', literal.strip())
                 node._literal = literal
@@ -461,7 +461,7 @@ class RuleCodeSpan(InlineRule):
 
         # not matched, resume position
         self.pos = after_open_ticks
-        return InlineNode('text', ticks)
+        return InlineNode('Text', ticks)
 
 #------------------------------------------------------------------------------
 # Rule: Auto Link
@@ -491,10 +491,10 @@ class RuleAutolink(InlineRule):
                 return None
 
         dest = match[1:-1]
-        node = InlineNode('link')
+        node = InlineNode('Link')
         node._destination = normalize_uri('mailto:' + dest)
         node._title = ''
-        node.append_child(InlineNode('text', dest))
+        node.append_child(InlineNode('Text', dest))
         return node
 
 #------------------------------------------------------------------------------
@@ -528,7 +528,7 @@ class RuleHTMLTag(InlineRule):
         if match is None:
             return None
         else:
-            node = InlineNode('html-inline')
+            node = InlineNode('HTMLInline')
             node._literal = match
             return node
 
@@ -627,7 +627,7 @@ class RuleDelimiter(InlineRule):
         start_pos = content.pos
         content.advance(num_delims)
         contents = content.string[start_pos:content.pos]
-        node = InlineNode('text', contents)
+        node = InlineNode('Text', contents)
 
         if not side_effect:
             return node
@@ -716,7 +716,7 @@ class RuleDelimiter(InlineRule):
 
                 # build contents for new emph element
                 if use_delims == 1:
-                    emph = InlineNode('emph')
+                    emph = InlineNode('Emph')
                 else:
                     emph = InlineNode('Strong')
 
@@ -878,7 +878,7 @@ class RuleLink(InlineRule):
             content.pos = start_pos
             return None
 
-        node = InlineNode('link')
+        node = InlineNode('Link')
         node._href = dest
         node._title = title
         if label:
@@ -906,7 +906,7 @@ class RuleImage(InlineRule):
             content.pos = start_pos
             return None
 
-        node.name = 'image'
+        node.name = 'Image'
         return node
 
 #------------------------------------------------------------------------------
@@ -927,11 +927,11 @@ class RuleNewline(InlineRule):
             hardbreak = len(last_child._literal) >= 2 and last_child._literal[-1] == ' '
             last_child._literal = re_final_space.sub('', last_child._literal)
             if hardbreak:
-                node = InlineNode('hard-break')
+                node = InlineNode('HardBreak')
             else:
-                node = InlineNode('soft-break')
+                node = InlineNode('SoftBreak')
         else:
-            node = InlineNode('soft-break')
+            node = InlineNode('SoftBreak')
 
         # remove leading spaces in next line
         content.match(re_initial_space)
@@ -945,7 +945,7 @@ class RuleEntity(InlineRule):
     """Entity"""
     def parse(self, parser, content, side_effect=True):
         match = content.match(re_entity_here)
-        return InlineNode('text', HTMLunescape(match)) if match else None
+        return InlineNode('Text', HTMLunescape(match)) if match else None
 
 #------------------------------------------------------------------------------
 # Rule: Plain Text
@@ -958,7 +958,7 @@ class RuleText(InlineRule):
         if not match:
             return None
 
-        node = InlineNode('text', match)
+        node = InlineNode('Text', match)
         return node
 
 #------------------------------------------------------------------------------
@@ -999,7 +999,7 @@ class RuleReferenceLink(object):
             title = ''
             content.pos = before_title
 
-        node = InlineNode('ref')
+        node = InlineNode('Ref')
         node._href = dest
         node._title = title
         node._label = normalize_reference(label)
@@ -1018,7 +1018,7 @@ class InlineParser(object):
         """The main entry for inline parser, return a InlineNode whose childrens are the parsed
         result"""
         content = Content(string)
-        self.node = InlineNode('parent')
+        self.node = InlineNode('Parent')
 
         while not content.is_end():
             matched = False
@@ -1029,7 +1029,7 @@ class InlineParser(object):
                     break
             if not matched:
                 # treat the next character as text
-                node = InlineNode('text', content.peek())
+                node = InlineNode('Text', content.peek())
                 content.advance()
             self.node.append_child(node)
 
@@ -1060,7 +1060,7 @@ class Parser(object):
     def __init__(self):
         super(Parser, self).__init__()
         self.line_num               = 0
-        self.doc                    = BlockFactory.make_block('document', 0, 0)
+        self.doc                    = BlockFactory.make_block('Document', 0, 0)
         self.last_matched_container = None
         self.tip                    = self.doc # inner most block
         self.refmap                 = {}
@@ -1131,7 +1131,7 @@ class Parser(object):
 
         # Now the line is striped, parse it as a normal unindented line
 
-        if self.tip.name == 'paragraph':
+        if self.tip.name == 'Paragraph':
             return self.tip.consume(self)
         elif ret == Block.YES:
             # the inner most block(leaf block) can consume this line
@@ -1169,9 +1169,9 @@ class Parser(object):
 
         # handle current node
         inlines = None
-        if root.name == 'paragraph':
+        if root.name == 'Paragraph':
             inlines = self.inline_parser.parse_content('\n'.join(root.lines))
-        elif root.name == 'heading':
+        elif root.name == 'Heading':
             inlines = self.inline_parser.parse_content('\n'.join(root.lines))
 
         if inlines:
@@ -1203,7 +1203,7 @@ class Block(Node):
     NO       = 1
     CONSUMED = 2
 
-    name = 'block'
+    name = 'Block'
 
     def __init__(self, *args, **kws):
         super(Block, self).__init__(*args, **kws)
@@ -1228,7 +1228,7 @@ class Block(Node):
 
     def can_contain(self, block):
         """Check if current block can contain other block, for example, a blockquote can contain
-        other blocks, but `list` block can contain only `list-item` block.
+        other blocks, but `list` block can contain only `ListItem` block.
 
         :block: the block to be contained
         :returns: true if `block` can be contained else false
@@ -1263,13 +1263,13 @@ class InlineNode(Node):
         self._literal = literal
 
     def _get_content(self):
-        if self.name == 'link':
+        if self.name == 'Link':
             ret = 'ref: (%s) ' % self._href
             ret += 'title: (%s)' % self._title
-        elif self.name == 'image':
+        elif self.name == 'Image':
             ret = 'ref: (%s) ' % self._href
             ret += 'title: (%s)' % self._title
-        elif self.name == 'ref':
+        elif self.name == 'Ref':
             ret = 'label: (%s) ' % self._label
             ret += 'ref: (%s) ' % self._href
             ret += 'title: (%s)' % self._title
@@ -1281,7 +1281,7 @@ class InlineNode(Node):
 class Document(Block):
     """root block of a document"""
 
-    name = 'document'
+    name = 'Document'
     type = 'root'
     def __init__(self, *args, **kws):
         super(Document, self).__init__(*args, **kws)
@@ -1289,14 +1289,14 @@ class Document(Block):
     def can_contain(self, block):
         # a document can contain `list` but not `item` directly
         # that means an `item` should be wrapped by `list`
-        return block.name != 'list-item'
+        return block.name != 'ListItem'
 
 #------------------------------------------------------------------------------
 
 class Paragraph(Block):
     """A paragraph"""
 
-    name = 'paragraph'
+    name = 'Paragraph'
     type = 'leaf'
 
     def __init__(self, *args, **kws):
@@ -1327,7 +1327,7 @@ class Paragraph(Block):
 
     def consume(self, parser):
         block = parser.parse_rest()
-        if block and block.name == 'paragraph':
+        if block and block.name == 'Paragraph':
             for line in block.lines:
                 self.lines.append(line)
         else:
@@ -1343,7 +1343,7 @@ class ParagraphParser(BlockParser):
         if line.blank:
             return None
 
-        paragraph = BlockFactory.make_block('paragraph', line.line_num, line.next_non_space)
+        paragraph = BlockFactory.make_block('Paragraph', line.line_num, line.next_non_space)
         paragraph.lines.append(line.clean_line)
         return paragraph
 
@@ -1352,7 +1352,7 @@ class ParagraphParser(BlockParser):
 class Blank(Block):
     """A blank line"""
 
-    name = 'blank'
+    name = 'Blank'
     type = 'leaf'
 
     def __init__(self, *args, **kws):
@@ -1377,14 +1377,14 @@ class BlankParser(BlockParser):
         if not line.blank:
             return None
 
-        blank = BlockFactory.make_block('blank', line.line_num, line.next_non_space)
+        blank = BlockFactory.make_block('Blank', line.line_num, line.next_non_space)
         return blank
 
 #------------------------------------------------------------------------------
 
 class Heading(Block):
     """Heading"""
-    name = 'heading'
+    name = 'Heading'
     type = 'leaf'
 
     def __init__(self, *args, **kws):
@@ -1405,7 +1405,7 @@ class SetextHeadingParser(BlockParser):
     def parse(parser):
         line = parser.line
         container = parser.container
-        if line.indented or container.name != 'paragraph':
+        if line.indented or container.name != 'Paragraph':
             return None
 
         match = SetextHeadingParser.re_setext_heading_line.match(line.after_strip)
@@ -1414,7 +1414,7 @@ class SetextHeadingParser(BlockParser):
 
         # this time, container should == parser.tip
 
-        heading = BlockFactory.make_block('heading', line.line_num, line.next_non_space)
+        heading = BlockFactory.make_block('Heading', line.line_num, line.next_non_space)
         heading.level = 1 if match.group(0)[0] == '=' else 2
         paragraph = parser.unlink_tail()
         heading.lines = paragraph.lines
@@ -1440,7 +1440,7 @@ class AtxHeadingParser(BlockParser):
         line.advance_next_non_space()
         line.advance_offset(len(match.group(0)))
 
-        heading = BlockFactory.make_block('heading', line.line_num, line.next_non_space)
+        heading = BlockFactory.make_block('Heading', line.line_num, line.next_non_space)
         heading.level = len(match.group(0).strip())
 
         # remove trailing ###s:
@@ -1452,7 +1452,7 @@ class AtxHeadingParser(BlockParser):
 
 class CodeBlock(Block):
     """Code Block"""
-    name = 'code-block'
+    name = 'CodeBlock'
     type = 'leaf'
 
     def __init__(self, *args, **kws):
@@ -1504,12 +1504,12 @@ class CodeBlockParser(BlockParser):
         line = parser.line
         if line.indented:
             # try indented code block
-            if parser.tip.name == 'paragraph' or line.blank:
+            if parser.tip.name == 'Paragraph' or line.blank:
                 # counted as a lazy line
                 return None
 
             line.advance_offset(CODE_INDENT, True)
-            codeblock = BlockFactory.make_block('code-block', line.line_num, line.next_non_space)
+            codeblock = BlockFactory.make_block('CodeBlock', line.line_num, line.next_non_space)
             codeblock.lines.append(line.clean_line)
             return codeblock
         else:
@@ -1517,7 +1517,7 @@ class CodeBlockParser(BlockParser):
             match = CodeBlockParser.re_open_fence.match(line.after_strip)
             if not match:
                 return None
-            codeblock = BlockFactory.make_block('code-block', line.line_num, line.next_non_space)
+            codeblock = BlockFactory.make_block('CodeBlock', line.line_num, line.next_non_space)
             codeblock._is_fence = True
             codeblock._fence_length = len(match.group(0))
             codeblock._fence_char = match.group(0)[0]
@@ -1531,7 +1531,7 @@ class CodeBlockParser(BlockParser):
 
 class ThematicBreak(Block):
     """Thematic Break"""
-    name = 'thematic-break'
+    name = 'ThematicBreak'
     type = 'leaf'
 
     def __init__(self, *args, **kws):
@@ -1551,21 +1551,21 @@ class ThematicBreakParser(BlockParser):
         match = ThematicBreakParser.re_thematic_break.match(line.after_strip)
         if match is None:
             return match
-        thematicbreak = BlockFactory.make_block('thematic-break', line.line_num, line.next_non_space)
+        thematicbreak = BlockFactory.make_block('ThematicBreak', line.line_num, line.next_non_space)
         return thematicbreak
 
 #------------------------------------------------------------------------------
 
 class BlockQuote(Block):
     """Block Quote"""
-    name = 'block-quote'
+    name = 'BlockQuote'
     type = 'container'
 
     def __init__(self, *args, **kws):
         super(BlockQuote, self).__init__(*args, **kws)
 
     def can_contain(self, block):
-        return block.name != 'list-item'
+        return block.name != 'ListItem'
 
     def can_strip(self, parser):
         line = parser.line
@@ -1592,7 +1592,7 @@ class BlockQuoteParser(BlockParser):
         if is_space_or_tab(line.peek()):
             line.advance_offset(1, True)
 
-        blockquote = BlockFactory.make_block('block-quote', line.line_num, line.next_non_space)
+        blockquote = BlockFactory.make_block('BlockQuote', line.line_num, line.next_non_space)
         return blockquote
 
 #------------------------------------------------------------------------------
@@ -1600,15 +1600,15 @@ class BlockQuoteParser(BlockParser):
 class List(Block):
     """A container list block"""
 
-    name = 'list'
+    name = 'List'
     type = 'container'
     def __init__(self, *args, **kws):
         super(List, self).__init__(*args, **kws)
         self.tight = True
 
     def can_contain(self, block):
-        # can contain only 'list-item'
-        return block.name == 'list-item'
+        # can contain only 'ListItem'
+        return block.name == 'ListItem'
 
     def close(self, parser):
         # set the tight status of a list
@@ -1652,7 +1652,7 @@ class Meta(object):
 class ListItem(Block):
     """A single list item"""
 
-    name = 'list-item'
+    name = 'ListItem'
     type = 'container'
 
     def __init__(self, *args, **kw):
@@ -1679,7 +1679,7 @@ class ListItem(Block):
         return Block.YES
 
     def can_contain(self, block):
-        return block.type != 'list-item'
+        return block.type != 'ListItem'
 
     def consume(self, parser):
         block = parser.parse_rest()
@@ -1709,11 +1709,11 @@ class ListItem(Block):
         """check if a container block ends with blank line"""
         if block.type == 'container':
             tail = block.tail_child
-            ret = tail and tail.name == 'blank'
-            if tail and tail.parent.name == 'list-item':
-                ret = tail.name == 'blank' and ((block.first_child != block.last_child) or tail.blank_lines > 1)
+            ret = tail and tail.name == 'Blank'
+            if tail and tail.parent.name == 'ListItem':
+                ret = tail.name == 'Blank' and ((block.first_child != block.last_child) or tail.blank_lines > 1)
             return ret
-        elif block.name == 'blank':
+        elif block.name == 'Blank':
             return True
         return False
 
@@ -1724,7 +1724,7 @@ class ListParser(BlockParser):
 
     @staticmethod
     def parse(parser):
-        if parser.line.indented and parser.tip.name != 'list':
+        if parser.line.indented and parser.tip.name != 'List':
             return None
 
         meta = ListParser.parse_list_marker(parser)
@@ -1734,13 +1734,13 @@ class ListParser(BlockParser):
         ret = None
         # add outer list if needed
         container = parser.container
-        if container.name != 'list' or container.meta != meta:
-            list_block = BlockFactory.make_block('list', parser.line.line_num, parser.line.next_non_space)
+        if container.name != 'List' or container.meta != meta:
+            list_block = BlockFactory.make_block('List', parser.line.line_num, parser.line.next_non_space)
             list_block.meta = meta
             ret = list_block
 
         # add the list item
-        list_item = BlockFactory.make_block('list-item', parser.line.line_num, parser.line.next_non_space)
+        list_item = BlockFactory.make_block('ListItem', parser.line.line_num, parser.line.next_non_space)
         list_item.meta = meta
 
         if ret is not None:
@@ -1848,7 +1848,7 @@ class HTMLContentParser(HTMLParser):
 class HTMLBlock(Block):
     """Block level HTML"""
 
-    name = 'html-block'
+    name = 'HtmlBlock'
     type = 'leaf'
 
     def __init__(self, *args, **kws):
@@ -1888,7 +1888,7 @@ class HTMLBlockParser(BlockParser):
         html_parser = HTMLContentParser()
         html_parser.feed(line.after_strip)
 
-        html_block = BlockFactory.make_block('html-block', parser.line.line_num, parser.line.next_non_space)
+        html_block = BlockFactory.make_block('HtmlBlock', parser.line.line_num, parser.line.next_non_space)
         html_block.html_parser = html_parser
         html_block.lines.append(line.after_strip)
 
@@ -1925,6 +1925,18 @@ class BlockFactory(object):
 
 #==============================================================================
 # HTML Renderer
+
+class HTMLRenderer(object):
+    """Render AST to HTML"""
+    def render(self, root):
+        # start tag
+
+        # render children
+        for child in root:
+            self.render(child)
+
+        # close tag
+
 
 #==============================================================================
 x = Parser()
@@ -1968,27 +1980,29 @@ First heading
 Second Heading
 ---
 aaaaaaa"""
-string = "![***em* strong**](http://www.baidu.com 'title') aaaa *b* "
-string = """# *x*"""
+#string = "![***em* strong**](http://www.baidu.com 'title') aaaa *b* "
+#string = """# *x*"""
 
-string = """
-&nbsp; &amp; &copy; &AElig; &Dcaron;
-&frac34; &HilbertSpace; &DifferentialD;
-&ClockwiseContourIntegral; &ngE;
-"""
+#string = """
+#&nbsp; &amp; &copy; &AElig; &Dcaron;
+#&frac34; &HilbertSpace; &DifferentialD;
+#&ClockwiseContourIntegral; &ngE;
+#"""
 
-string = """
-```
-``` a
-```
-"""
-string = """
-[[haha][zz]][xx]
+#string = """
+#```
+#``` a
+#```
+#"""
+#string = """
+#[[haha][zz]][xx]
 
-   [xx]: www.baidu.com
-    [yy]: www.google.com
-   """
+   #[xx]: www.baidu.com
+    #[yy]: www.google.com
+   #"""
 
 x.parse(string)
+
+
 print(x.doc)
 
