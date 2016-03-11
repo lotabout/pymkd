@@ -1388,7 +1388,7 @@ class CodeBlock(Block):
         if self._is_fence:
             # fenced code block
             match = (line.indent <= 3 and line.get_char(line.next_non_space) == self._fence_char
-                    and CodeBlock.re_closing_fence.match(line.after_strip))
+                    and CodeBlockParser.re_closing_fence.match(line.after_strip))
             if match and len(match.group(0)) >= self._fence_length:
                 parser.close(self)
                 return Block.CONSUMED
@@ -1433,7 +1433,7 @@ class CodeBlockParser(BlockParser):
             match = CodeBlockParser.re_open_fence.match(line.after_strip)
             if not match:
                 return None
-            codeblock = BlockParser.make_block('code-block', line.line_num, line.next_non_space)
+            codeblock = BlockFactory.make_block('code-block', line.line_num, line.next_non_space)
             codeblock._is_fence = True
             codeblock._fence_length = len(match.group(0))
             codeblock._fence_char = match.group(0)[0]
