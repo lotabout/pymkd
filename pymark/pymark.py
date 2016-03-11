@@ -1625,7 +1625,6 @@ class Meta(object):
     """meta info for list marks"""
     def __init__(self):
         self.type          = None
-        self.tight         = True
         self.bullet_char   = None
         self.start         = None
         self.delimiter     = None
@@ -1926,17 +1925,149 @@ class BlockFactory(object):
 #==============================================================================
 # HTML Renderer
 
+def noop(node, info):
+    return ''
+
 class HTMLRenderer(object):
     """Render AST to HTML"""
+
+    block_separator = '\n'
+
     def render(self, root):
-        # start tag
+        return ''.join(self._render(root))
 
-        # render children
+    def _render(self, node, info={}):
+        """dispatch function for a node"""
+        method = getattr(self, 'render'+node.name, noop)
+        return method(node, info)
+
+    def _render_child(self, root, info={}):
+        ret = []
         for child in root:
-            self.render(child)
+            ret.append(self._render(child, info))
+        return ''.join(ret)
 
-        # close tag
+    def _tag(self, tagname, content=''):
+        return '<'+tagname+'>' + content +'</'+tagname+'>'
 
+    def _block_tag(self, tagname, content=''):
+        return self._tag(tagname, content) + HTMLRenderer.block_separator
+
+#----------------------------------------------------------------------
+# Block Level nodes
+
+    # Document
+    def renderDocument(self, node, info):
+        ret = []
+        return self._render_child(node)
+
+    # Paragraph
+    def renderParagraph(self, node, info):
+        if info.get('is_tight'):
+            return self._block_tag('p', self._render_child(node))
+        else:
+            return self._render_child(node)
+
+    # Heading
+    def renderHeading(self, node, info):
+        return self._block_tag('h'+str(node.level), self._render_child(node))
+
+    # CodeBlock
+    def renderCodeBlock(self, node, info):
+        ret = ['<pre']
+        if node._is_fence:
+            ret.append(' class=language')
+            ret.append(node._fence_option)
+        ret.append('><code>')
+        ret.append('\n'.join(node.lines))
+        ret.append('</code></pre>')
+        ret.append(HTMLRenderer.block_separator)
+        return ''.join(ret)
+
+    # ThematicBreak
+    def renderThematicBreak(self, node, info):
+        return '<hr/>\n'
+
+    # BlockQuote
+    def renderBlockQuote(self, node, info):
+        return self._block_tag('blockquote', self._render_child(node))
+
+    # List
+    def renderList(self, node, info):
+        info['is_tight'] = node.tight
+
+        ret = []
+        if node.meta.type == 'ordered':
+            ret.append('<ol start="')
+            ret.append(str(node.meta.start))
+            ret.append('">')
+            ret.append(self._render_child(node, info))
+            ret.append('</ol>')
+            ret.append(HTMLRenderer.block_separator)
+        else:
+            ret.append('<ul>')
+            ret.append(self._render_child(node, info))
+            ret.append('</ol>')
+            ret.append(HTMLRenderer.block_separator)
+
+        info['is_tight'] = False
+        return ''.join(ret)
+
+    # ListItem
+    def renderListItem(self, node, info):
+        return self._block_tag('li', self._render_child(node, info))
+
+    # HTMLBlock
+    def renderHTMLBlock(self, node, info):
+        return '\n'.join(node.lines)
+
+#----------------------------------------------------------------------
+# Inline Level nodes
+
+    def renderText(self, node, info):
+        return node._literal
+
+    def renderCodeSpan(self, node, info):
+        return self._tag('code', node._literal)
+
+    def renderSoftBreak(self, node, info):
+        return '\n'
+
+    def renderHardBreak(self, node, info):
+        return '<br/>'
+
+    def renderLink(self, node, info):
+        ret = ['<a href="']
+        ret.append(node._href)
+        ret.append('"')
+        if node._title:
+            ret.append(' title="')
+            ret.append(node._title)
+            ret.append('"')
+        ret.append(self._render(node))
+        ret.append('</a>')
+        return ''.join(ret)
+
+    def renderImage(self, node, info):
+        ret = ['<img href="']
+        ret.append(node._href)
+        ret.append('"')
+        if node._title:
+            ret.append(' title="')
+            ret.append(node._title)
+            ret.append('"')
+        ret.append(self._render(node))
+        ret.append('</img>')
+        return ''.join(ret)
+
+    def renderHTMLInline(self, node, info):
+        return node._literal
+
+    def renderEmph(self, node, info):
+        return self._tag('emph', self._render_child(node))
+
+    def renderStrong(self, node, info):
+        return self._tag('strong', self._render_child(node))
 
 #==============================================================================
 x = Parser()
@@ -1945,7 +2076,7 @@ string = """
 2. abc
 > x
 1. <div
-     >aaa
+     >aaa</div>
 2.   >aaa
 
 1. a
@@ -1979,7 +2110,14 @@ First heading
 ====
 Second Heading
 ---
-aaaaaaa"""
+aaaaaaa
+
+```python
+a = 10
+b = 20
+```
+
+"""
 #string = "![***em* strong**](http://www.baidu.com 'title') aaaa *b* "
 #string = """# *x*"""
 
@@ -2001,8 +2139,7 @@ aaaaaaa"""
     #[yy]: www.google.com
    #"""
 
-x.parse(string)
-
-
-print(x.doc)
+doc = x.parse(string)
+renderer = HTMLRenderer()
+print(renderer.render(doc))
 
