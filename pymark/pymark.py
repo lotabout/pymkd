@@ -1847,7 +1847,7 @@ class HTMLContentParser(HTMLParser):
 class HTMLBlock(Block):
     """Block level HTML"""
 
-    name = 'HtmlBlock'
+    name = 'HTMLBlock'
     type = 'leaf'
 
     def __init__(self, *args, **kws):
@@ -1887,7 +1887,7 @@ class HTMLBlockParser(BlockParser):
         html_parser = HTMLContentParser()
         html_parser.feed(line.after_strip)
 
-        html_block = BlockFactory.make_block('HtmlBlock', parser.line.line_num, parser.line.next_non_space)
+        html_block = BlockFactory.make_block('HTMLBlock', parser.line.line_num, parser.line.next_non_space)
         html_block.html_parser = html_parser
         html_block.lines.append(line.after_strip)
 
@@ -1963,7 +1963,7 @@ class HTMLRenderer(object):
 
     # Paragraph
     def renderParagraph(self, node, info):
-        if info.get('is_tight'):
+        if not info.get('is_tight'):
             return self._block_tag('p', self._render_child(node))
         else:
             return self._render_child(node)
@@ -2044,7 +2044,7 @@ class HTMLRenderer(object):
             ret.append(' title="')
             ret.append(node._title)
             ret.append('"')
-        ret.append(self._render(node))
+        ret.append(self._render_child(node))
         ret.append('</a>')
         return ''.join(ret)
 
@@ -2056,7 +2056,7 @@ class HTMLRenderer(object):
             ret.append(' title="')
             ret.append(node._title)
             ret.append('"')
-        ret.append(self._render(node))
+        ret.append(self._render_child(node))
         ret.append('</img>')
         return ''.join(ret)
 
@@ -2139,7 +2139,19 @@ b = 20
     #[yy]: www.google.com
    #"""
 
+string = """
+1. x
+   2. x
+4. d
+
+First heading
+====
+Second Heading
+---
+aaaaaaa
+"""
+
 doc = x.parse(string)
 renderer = HTMLRenderer()
-print(renderer.render(doc))
-
+html = renderer.render(doc)
+print(doc)
