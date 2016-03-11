@@ -273,7 +273,7 @@ class Content(object):
         return self.string[self.pos:]
 
     def is_end(self):
-        return self.pos >= len(string)
+        return self.pos >= len(self.string)
 
     def advance(self, num=1):
         self.pos += num
@@ -328,6 +328,9 @@ re_whitespace = re.compile(r'\s+')
 def normalize_uri(uri):
     # TODO: implement this
     return uri
+
+def unescape_string(string):
+    return string
 
 #------------------------------------------------------------------------------
 # Rule: Escape characters
@@ -581,6 +584,9 @@ class RuleDelimiter(InlineRule):
 
         use_delims = 0
 
+        # set default delimiters if not exists
+        parser.delimiters = getattr(parser, 'delimiters', None)
+
         # find first closer, i.e find the stack bottom
         closer = parser.delimiters
         while closer is not None and closer.get('prev') != stack_bottom:
@@ -750,6 +756,7 @@ class RuleLink(InlineRule):
 
         start_pos = content.pos
         matched = False
+        title = ''
 
         content.skip_spaces()
         if content.peek() == '(':
@@ -795,7 +802,10 @@ class RuleLink(InlineRule):
         node = InlineNode('link')
         node._href = dest
         node._title = title
-        node._label = label
+        if label:
+            label_parser = InlineParser()
+            for child in label_parser.parse_content(label):
+                node.append_child(child)
         return node
 
 #------------------------------------------------------------------------------
@@ -898,11 +908,10 @@ class InlineParser(object):
 
         # TODO: later add cache to enhance performance
 
-        while not content.is_end():
-            for rule in self.rules:
-                node = rule.parse(self, content, side_effect=False)
-                if node is not None:
-                    break
+        for rule in self.rules:
+            node = rule.parse(self, content, side_effect=False)
+            if node is not None:
+                break
 
 
 #==============================================================================
@@ -1115,7 +1124,15 @@ class InlineNode(Node):
         self._literal = literal
 
     def _get_content(self):
-        return self._literal
+        if self.name == 'link':
+            ret = 'ref: (%s) ' % self._href
+            ret += 'title: (%s)' % self._title
+        elif self.name == 'image':
+            ret = 'ref: (%s) ' % self._href
+            ret += 'title: (%s)' % self._title
+        else:
+            ret = self._literal
+        return ret
 
 #------------------------------------------------------------------------------
 class Document(Block):
@@ -1789,7 +1806,8 @@ First heading
 Second Heading
 ---
 aaaaaaa"""
-string = "[xxx](http://www.baidu.com)aaaa *b* "
+string = "![***em* strong**](http://www.baidu.com 'title') aaaa *b* "
+string = """# *x*"""
 x.parse(string)
 print(x.doc)
 
