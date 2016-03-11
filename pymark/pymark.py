@@ -389,6 +389,13 @@ def normalize_uri(uri):
             s = re.sub(r'%2C', ',', s)
             return s
 
+def normalize_reference(s):
+    """Normalize reference label.
+    Collapse internal whitespace to single space, remove
+    leading/trailing whitespace, case fold.
+    """
+    return re.sub(r'\s+', ' ', s.strip()).upper()
+
 def unescape_char(s):
     return s[1] if s[0] == '\\' else HTMLunescape(s)
 
@@ -817,11 +824,13 @@ class RuleLink(InlineRule):
     """Rule for parsing link"""
 
     def parse(self, parser, content, side_effect=True):
+        start_pos = content.pos
+
         label = parse_link_label(parser, content)
         if label is None:
+            content.pos = start_pos
             return None
 
-        start_pos = content.pos
         matched = False
         title = ''
 
@@ -850,29 +859,33 @@ class RuleLink(InlineRule):
         elif content.peek() == '[':
             # reference link
             ref_label = parse_link_label(parser, content)
+            ref_label = normalize_reference(ref_label) if ref_label is not None  else None
 
-            # TODO: refer to actual link
-            if True:
-                content.pos = start_pos
-            else:
+            # if side effect if False, do not lookup the refmap, and consider it as a token
+            if not side_effect:
                 matched = True
                 dest = ''
-                title = 'title'
+                title = ''
+            elif ref_label is not None and ref_label in parser.refmap:
+                matched = True
+                dest = parser.refmap[ref_label]['dest']
+                title = parser.refmap[ref_label]['title']
         else:
             # not matched
             pass
 
         if not matched:
-            current_pos = start_pos
+            content.pos = start_pos
             return None
 
         node = InlineNode('link')
         node._href = dest
         node._title = title
         if label:
-            label_parser = InlineParser()
+            label_parser = InlineParser(parser.refmap)
             for child in label_parser.parse_content(label):
                 node.append_child(child)
+
         return node
 
 #------------------------------------------------------------------------------
@@ -949,11 +962,56 @@ class RuleText(InlineRule):
         return node
 
 #------------------------------------------------------------------------------
+# Rule: Reference Link Definition
+#
+# This is actually a leaf block, so we don't inherit Inline Rule
+class RuleReferenceLink(object):
+    """Reference Link Definition"""
+    def parse(self, inline_parser, content, side_effect=True):
+        start_pos = content.pos
+
+        # match label:
+        label = parse_link_label(inline_parser, content)
+        if label is None:
+            content.pos = start_pos
+            return None
+
+        # match colon []: link 'title'
+        if content.peek() != ':':
+            content.pos = start_pos
+            return None
+        else:
+            content.advance()
+
+        # link url
+        content.skip_spaces()
+
+        dest = parse_link_destination(inline_parser, content)
+
+        if dest is None or len(dest) == 0:
+            content.pos = start_pos
+            return None
+
+        before_title = content.pos
+        content.skip_spaces()
+        title = parse_link_title(inline_parser, content)
+        if title is None:
+            title = ''
+            content.pos = before_title
+
+        node = InlineNode('ref')
+        node._href = dest
+        node._title = title
+        node._label = normalize_reference(label)
+        return node
+
+#------------------------------------------------------------------------------
 # Actual parser that utilize all rules
 
 class InlineParser(object):
     """Inline Parser"""
-    def __init__(self):
+    def __init__(self, refmap={}):
+        self.refmap = refmap
         self.rules = [b() for b in InlineRule.__subclasses__()]
 
     def parse_content(self, string):
@@ -963,11 +1021,17 @@ class InlineParser(object):
         self.node = InlineNode('parent')
 
         while not content.is_end():
+            matched = False
             for rule in self.rules:
                 node = rule.parse(self, content)
                 if node is not None:
-                    self.node.append_child(node)
+                    matched = True
                     break
+            if not matched:
+                # treat the next character as text
+                node = InlineNode('text', content.peek())
+                content.advance()
+            self.node.append_child(node)
 
         # in the end, process
         for rule in reversed(self.rules):
@@ -999,7 +1063,8 @@ class Parser(object):
         self.doc                    = BlockFactory.make_block('document', 0, 0)
         self.last_matched_container = None
         self.tip                    = self.doc # inner most block
-        self.inline_parser          = InlineParser()
+        self.refmap                 = {}
+        self.inline_parser          = InlineParser(self.refmap)
 
     def close(self, block):
         block.end_line = self.line.line_num
@@ -1204,6 +1269,10 @@ class InlineNode(Node):
         elif self.name == 'image':
             ret = 'ref: (%s) ' % self._href
             ret += 'title: (%s)' % self._title
+        elif self.name == 'ref':
+            ret = 'label: (%s) ' % self._label
+            ret += 'ref: (%s) ' % self._href
+            ret += 'title: (%s)' % self._title
         else:
             ret = self._literal
         return ret
@@ -1238,8 +1307,23 @@ class Paragraph(Block):
 
     def close(self, parser):
         # try parsing the beginning as link reference definitions
-        # TODO: after finish the inline parser
-        pass
+        content = Content('\n'.join(self.lines))
+        has_ref_defs = False
+        content.skip_spaces()
+        rule_reference = RuleReferenceLink()
+        while content.peek() == '[':
+            node = rule_reference.parse(parser.inline_parser, content)
+            if node is None:
+                break
+
+            # save the label
+            if node._label not in parser.refmap:
+                parser.refmap[node._label] = {'dest': node._href, 'title': node._title}
+            content.skip_spaces()
+            has_ref_defs = True
+            self.append_child(node)
+
+        self.lines = content.rest.split('\n')
 
     def consume(self, parser):
         block = parser.parse_rest()
@@ -1898,6 +1982,12 @@ string = """
 ``` a
 ```
 """
+string = """
+[[haha][zz]][xx]
+
+   [xx]: www.baidu.com
+    [yy]: www.google.com
+   """
 
 x.parse(string)
 print(x.doc)
