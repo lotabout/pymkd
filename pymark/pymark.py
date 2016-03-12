@@ -935,7 +935,7 @@ class RuleNewline(InlineRule):
             last_child = parser.node.last_child
         except AttributeError:
             last_child = None
-        if last_child and last_child.name == 'text' and last_child._literal[-1] == ' ':
+        if last_child and last_child.name == 'Text' and last_child._literal[-1] == ' ':
             hardbreak = len(last_child._literal) >= 2 and last_child._literal[-1] == ' '
             last_child._literal = re_final_space.sub('', last_child._literal)
             if hardbreak:
@@ -1192,7 +1192,7 @@ class Parser(object):
             return block
         elif block.type == 'container':
             # the line header is already consumed
-            self.container = block
+            self.container = block.tail_child if block.tail_child else block
             child = self.parse_rest()
             if child is not None:
                 block.append_tail(child)
@@ -1204,9 +1204,9 @@ class Parser(object):
         # handle current node
         inlines = None
         if root.name == 'Paragraph':
-            inlines = self.inline_parser.parse_content('\n'.join(root.lines))
+            inlines = self.inline_parser.parse_content('\n'.join(root.lines).strip())
         elif root.name == 'Heading':
-            inlines = self.inline_parser.parse_content('\n'.join(root.lines))
+            inlines = self.inline_parser.parse_content('\n'.join(root.lines).strip())
 
         if inlines:
             root.lines = []
@@ -1760,7 +1760,7 @@ class ListItem(Block):
         #    bbb  <- subitem
         # 2. ccc
         for item in self:
-            if ListItem._ends_with_blank_line(item) and item.nxt:
+            if item.name == 'Blank' and item.prv and item.nxt:
                 return False
         return True
 
@@ -2064,21 +2064,26 @@ class HTMLRenderer(object):
 
     # Document
     def renderDocument(self, node, info):
-        return self._render_child(node)
+        return self._render_child(node, {})
 
     # Paragraph
     def renderParagraph(self, node, info):
         if node.is_empty:
             return
 
-        if not info.get('is_tight'):
+        try:
+            gp = node.parent.parent
+        except:
+            gp = None
+
+        if gp is not None and gp.name == 'List' and gp.tight:
+            self._render_child(node)
+        else:
             self._cr()
             self._out(self._tag('p'))
             self._render_child(node)
             self._out(self._tag('/p'))
             self._cr()
-        else:
-            self._render_child(node)
 
     # Heading
     def renderHeading(self, node, info):
@@ -2121,8 +2126,6 @@ class HTMLRenderer(object):
 
     # List
     def renderList(self, node, info):
-        info['is_tight'] = node.tight
-
         attrs = []
         if node.meta.type == 'ordered':
             tag = 'ol'
@@ -2138,8 +2141,6 @@ class HTMLRenderer(object):
         self._cr()
         self._out(self._tag('/'+tag))
         self._cr()
-
-        info['is_tight'] = False
 
     # ListItem
     def renderListItem(self, node, info):
@@ -2169,6 +2170,7 @@ class HTMLRenderer(object):
 
     def renderHardBreak(self, node, info):
         self._out(self._tag('br', [], True))
+        self._cr()
 
     def renderLink(self, node, info):
         attrs = [('href', escape_xml(node._href, True))]
