@@ -1976,7 +1976,7 @@ class HTMLRenderer(object):
     def renderCodeBlock(self, node, info):
         ret = ['<pre']
         if node._is_fence:
-            ret.append(' class=language')
+            ret.append(' class=language-')
             ret.append(node._fence_option)
         ret.append('><code>')
         ret.append('\n'.join(node.lines))
@@ -2139,19 +2139,7 @@ b = 20
     #[yy]: www.google.com
    #"""
 
-string = """
-1. x
-   2. x
-4. d
-
-First heading
-====
-Second Heading
----
-aaaaaaa
-"""
-
 doc = x.parse(string)
 renderer = HTMLRenderer()
 html = renderer.render(doc)
-print(doc)
+print(html)
