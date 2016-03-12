@@ -1066,10 +1066,11 @@ class Parser(object):
         self.inline_parser          = InlineParser(self.refmap)
 
     def close(self, block):
-        block.end_line = self.line.line_num
-        block.end_col = len(self.line.line)
-        block.is_open = False
-        block.close(self)
+        if block.is_open:
+            block.end_line = self.line.line_num
+            block.end_col = len(self.line.line)
+            block.is_open = False
+            block.close(self)
         self.tip = block.parent
 
     def close_unmatched(self):
@@ -1191,6 +1192,11 @@ class Parser(object):
 
     def parse(self, input):
         """parse the input string and return the AST"""
+
+        # ignore last blank line created by final newline
+        if len(input) > 0 and input[-1] == '\n':
+            input = input[:-1]
+
         for line in input.split('\n'):
             self.parse_line(line)
         return self.parse_end()
@@ -1462,6 +1468,7 @@ class CodeBlock(Block):
     def __init__(self, *args, **kws):
         super(CodeBlock, self).__init__(*args, **kws)
         self.lines = []
+        self._literal = ''
         self._is_fence = False
         self._fence_length = 0
         self._fence_char = None
@@ -1469,17 +1476,18 @@ class CodeBlock(Block):
         self._fence_option = ''
 
     def _get_content(self):
-        return str(self._fence_char) + ': ' + self._fence_option + '>' + '|'.join(self.lines)
+        return str(self._fence_char) + ': ' + self._fence_option + '>' + repr(self._literal)
 
     def close(self, parser):
-        if not self._fence_option:
+        if self._is_fence:
+            self._fence_option = self._fence_option.strip()
+            self._literal = ''.join(self.lines)
+            self.lines = []
+        else:
             # remove trailing blank lines
-            try:
-                while self.lines[-1].strip() == '':
-                    self.lines.pop()
-            except IndexError:
-                pass
-            self.lines.append('')
+            line = ''.join(self.lines)
+            self.lines = []
+            self._literal = re.sub(r'(\n *)+$', '\n', line)
 
     def can_strip(self, parser):
         line = parser.line
@@ -1507,7 +1515,8 @@ class CodeBlock(Block):
         return Block.YES
 
     def consume(self, parser):
-        self.lines.append(parser.line.clean_line)
+        # we will need the newline character in renderer
+        self.lines.append(parser.line.clean_line + '\n')
 
 class CodeBlockParser(BlockParser):
     re_open_fence = re.compile(r'`{3,}(?!.*`)|^~{3,}(?!.*~)')
@@ -1524,7 +1533,7 @@ class CodeBlockParser(BlockParser):
 
             line.advance_offset(CODE_INDENT, True)
             codeblock = BlockFactory.make_block('CodeBlock', line.line_num, line.next_non_space)
-            codeblock.lines.append(line.clean_line)
+            codeblock.lines.append(line.clean_line + '\n')
             return codeblock
         else:
             # try fenced code block
@@ -2042,12 +2051,12 @@ class HTMLRenderer(object):
     # CodeBlock
     def renderCodeBlock(self, node, info):
         attrs = []
-        if node._is_fence:
+        if node._is_fence and node._fence_option:
             attrs.append(('class', 'language-'+ node._fence_option))
 
         self._cr()
         self._out(self._tag('pre') + self._tag('code', attrs))
-        self._out(escape_xml('\n'.join(node.lines)))
+        self._out(escape_xml(node._literal))
         self._out(self._tag('/code') + self._tag('/pre'))
         self._cr()
 
@@ -2156,4 +2165,12 @@ def main():
     print(renderer.render(doc))
 
 if __name__ == '__main__':
-    main()
+    #main()
+    parser = Parser()
+    renderer = HTMLRenderer()
+    string = "# Heading\n    foo\nHeading\n------\n    bar\n----\n"
+    doc = parser.parse(string)
+    html = renderer.render(doc)
+    print(doc)
+    print(html)
+
