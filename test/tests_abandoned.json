@@ -1,0 +1,34 @@
+[
+  {
+    "section": "Setext headings",
+    "start_line": 1043,
+    "html": "<h2>`Foo</h2>\n<p>`</p>\n<h2>&lt;a title=&quot;a lot</h2>\n<p>of dashes&quot;/&gt;</p>\n",
+    "markdown": "`Foo\n----\n`\n\n<a title=\"a lot\n---\nof dashes\"/>\n",
+    "end_line": 1056,
+    "example": 59
+  },
+  {
+    "section": "HTML blocks",
+    "start_line": 1981,
+    "html": "</div>\n*foo*\n",
+    "markdown": "</div>\n*foo*\n",
+    "end_line": 1987,
+    "example": 116
+  },
+  {
+    "section": "HTML blocks",
+    "start_line": 1992,
+    "html": "<DIV CLASS=\"foo\">\n<p><em>Markdown</em></p>\n</DIV>\n",
+    "markdown": "<DIV CLASS=\"foo\">\n\n*Markdown*\n\n</DIV>\n",
+    "end_line": 2002,
+    "example": 117
+  },
+  {
+    "section": "HTML blocks",
+    "start_line": 2031,
+    "html": "<div>\n*foo*\n<p><em>bar</em></p>\n",
+    "markdown": "<div>\n*foo*\n\n*bar*\n",
+    "end_line": 2040,
+    "example": 120
+  }
+]

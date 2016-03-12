@@ -1864,7 +1864,7 @@ class HTMLContentParser(HTMLParser):
             self.tag_num = -9999 # negtive number will be OK
     @property
     def done(self):
-        return self.tag_num < 0
+        return self.tag_num <= 0
 
 class HTMLBlock(Block):
     """Block level HTML"""
@@ -1881,8 +1881,8 @@ class HTMLBlock(Block):
 
         # consume another line
         line = parser.line
-        self.html_parser.feed(line.after_strip)
-        self.lines.append(line.after_strip)
+        self.html_parser.feed(line.clean_line)
+        self.lines.append(line.clean_line)
         return Block.CONSUMED
 
     def _get_content(self):
@@ -1897,7 +1897,7 @@ class HTMLBlockParser(BlockParser):
     @staticmethod
     def parse(parser):
         line = parser.line
-        if line.indent > 0:
+        if line.indented:
             # we require HTML block to have no indent at all(0 space)
             return None
 
@@ -1911,7 +1911,7 @@ class HTMLBlockParser(BlockParser):
 
         html_block = BlockFactory.make_block('HTMLBlock', parser.line.line_num, parser.line.next_non_space)
         html_block.html_parser = html_parser
-        html_block.lines.append(line.after_strip)
+        html_block.lines.append(line.clean_line)
 
         return html_block
 
@@ -2109,7 +2109,9 @@ class HTMLRenderer(object):
 
     # HTMLBlock
     def renderHTMLBlock(self, node, info):
+        self._cr()
         self._out('\n'.join(node.lines))
+        self._cr()
 #----------------------------------------------------------------------
 # Inline Level nodes
 
@@ -2167,12 +2169,4 @@ def main():
     print(renderer.render(doc))
 
 if __name__ == '__main__':
-    #main()
-    parser = Parser()
-    renderer = HTMLRenderer()
-    string = "# Heading\n    foo\nHeading\n------\n    bar\n----\n"
-    doc = parser.parse(string)
-    html = renderer.render(doc)
-    print(doc)
-    print(html)
-
+    main()
