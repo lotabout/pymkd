@@ -482,19 +482,20 @@ class RuleAutolink(InlineRule):
         if m_email:
             # match email
             match = m_email
-            href = 'mailto:' + match[1:-1]
+            label = match[1:-1]
+            href = 'mailto:' + label
         else:
             m_link = content.match(re_autolink)
             if m_link:
                 match = m_link
-                href = match[1:-1]
+                label = href = match[1:-1]
             else:
                 return None
 
         node = InlineNode('Link')
         node._href = normalize_uri(href)
         node._title = ''
-        node.append_child(InlineNode('Text', href))
+        node.append_child(InlineNode('Text', label))
         return node
 
 #------------------------------------------------------------------------------
@@ -781,10 +782,15 @@ def parse_link_label(parser, content):
             if level == 0:
                 break
 
+        old_pos = content.pos
         parser.skip_token(content)
         if content.peek() == '[':
             content.advance()
             level += 1
+
+        if content.peek() != ']' and content.pos == old_pos:
+            # met special character, skip
+            content.advance()
 
     if level == 0:
         ret = content.string[start_pos+1:content.pos-1]
@@ -827,7 +833,7 @@ def parse_link_destination(parser, content):
 class RuleLink(InlineRule):
     """Rule for parsing link"""
 
-    def parse(self, parser, content, side_effect=True, parse_label=True):
+    def parse(self, parser, content, side_effect=True):
         start_pos = content.pos
 
         label = parse_link_label(parser, content)
@@ -864,6 +870,7 @@ class RuleLink(InlineRule):
         elif content.peek() == '[':
             # reference link
             ref_label = parse_link_label(parser, content)
+            ref_label = label if not ref_label else ref_label
             ref_label = normalize_reference(ref_label) if ref_label is not None  else None
 
             # if side effect if False, do not lookup the refmap, and consider it as a token
@@ -896,8 +903,7 @@ class RuleLink(InlineRule):
         node = InlineNode('Link')
         node._href = dest
         node._title = title
-        node._label = label
-        if label and parse_label:
+        if label:
             label_parser = InlineParser(parser.refmap)
             for child in label_parser.parse_content(label):
                 node.append_child(child)
@@ -917,7 +923,7 @@ class RuleImage(InlineRule):
         content.advance()
 
         rule = RuleLink()
-        node = rule.parse(parser, content, side_effect, parse_label=False)
+        node = rule.parse(parser, content, side_effect)
         if node is None:
             content.pos = start_pos
             return None
@@ -943,7 +949,7 @@ class RuleNewline(InlineRule):
         except AttributeError:
             last_child = None
         if last_child and last_child.name == 'Text' and last_child._literal[-1] == ' ':
-            hardbreak = len(last_child._literal) >= 2 and last_child._literal[-1] == ' '
+            hardbreak = len(last_child._literal) >= 2 and last_child._literal[-2] == ' '
             last_child._literal = re_final_space.sub('', last_child._literal)
             if hardbreak:
                 node = InlineNode('HardBreak')
@@ -992,7 +998,8 @@ class RuleReferenceLink(object):
 
         # match label:
         label = parse_link_label(inline_parser, content)
-        if label is None:
+        # label should not contain only whitespaces
+        if label is None or label.strip() == '':
             content.pos = start_pos
             return None
 
@@ -1381,7 +1388,7 @@ class Paragraph(Block):
         block = parser.parse_rest()
         if block and block.name == 'Paragraph':
             for line in block.lines:
-                self.lines.append(line)
+                self.lines.append(line.lstrip())
         else:
             parser.close_unmatched()
             parser.add_child(block)
@@ -2053,10 +2060,13 @@ class HTMLRenderer(object):
     def render(self, root):
         self._ret = []
         self._last_out = '\n'
+        self._info = {'img_level': 0}
         self._render(root)
         return ''.join(self._ret)
 
     def _out(self, content):
+        if self._info.get('img_level', 0) > 0:
+            content = re_html_tag.sub('', content)
         self._ret.append(content)
         self._last_out = content
 
@@ -2206,12 +2216,19 @@ class HTMLRenderer(object):
         self._out(self._tag('/a'))
 
     def renderImage(self, node, info):
-        self._out('<img src="{0}" alt="'.format(escape_xml(node._href, True)))
-        self._out(node._label)
-        self._out('"')
-        if node._title:
-            self._out(' title="{0}"'.format(escape_xml(node._title, True)))
-        self._out(' />')
+        self._info['img_level'] += 1
+        if self._info['img_level'] <= 1:
+            self._out('<img src="{0}" alt="'.format(escape_xml(node._href, True)))
+
+        self._render_child(node)
+
+        if self._info['img_level'] <= 1:
+            self._out('"')
+            if node._title:
+                self._out(' title="{0}"'.format(escape_xml(node._title, True)))
+            self._out(' />')
+
+        self._info['img_level'] -= 1
 
 
     def renderHTMLInline(self, node, info):

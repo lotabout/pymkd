@@ -915,9 +915,8 @@
   {
     "section": "HTML blocks",
     "start_line": 1968,
-    "html": "<p><div>\n<em>hello</em>\n<foo><a></p>\n",
-    "orig_html": " <div>\n  *hello*\n         <foo><a>\n",
-    "markdown": " <div>\n  *hello*\n         <foo><a>\n",
+    "html": "<div>\n  *hello*\n         <foo><a>\n",
+    "markdown": "<div>\n  *hello*\n         <foo><a>\n",
     "end_line": 1976,
     "example": 115
   },
@@ -3911,7 +3910,7 @@
     "section": "Links",
     "start_line": 7407,
     "orig_html": "<p><img src=\"uri3\" alt=\"[foo](uri1)\" /></p>\n",
-    "html": "<p><img src=\"uri3\" alt=\"[[foo](uri1)](uri2)\" /></p>\n",
+    "html": "<p><img src=\"uri3\" alt=\"foo\" /></p>\n",
     "markdown": "![[[foo](uri1)](uri2)](uri3)\n",
     "end_line": 7411,
     "example": 486
@@ -4129,7 +4128,8 @@
   {
     "section": "Links",
     "start_line": 7745,
-    "html": "<p>[foo][ref[bar]]</p>\n<p>[ref[bar]]: /uri</p>\n",
+    "orig_html": "<p>[foo][ref[bar]]</p>\n<p>[ref[bar]]: /uri</p>\n",
+    "html": "<p><a href=\"/uri\">foo</a></p>\n",
     "markdown": "[foo][ref[bar]]\n\n[ref[bar]]: /uri\n",
     "end_line": 7752,
     "example": 513
@@ -4137,7 +4137,8 @@
   {
     "section": "Links",
     "start_line": 7755,
-    "html": "<p>[[[foo]]]</p>\n<p>[[[foo]]]: /url</p>\n",
+    "orig_html": "<p>[[[foo]]]</p>\n<p>[[[foo]]]: /url</p>\n",
+    "html": "<p><a href=\"/url\">[[foo]]</a></p>\n",
     "markdown": "[[[foo]]]\n\n[[[foo]]]: /url\n",
     "end_line": 7762,
     "example": 514
@@ -4449,7 +4450,8 @@
   {
     "section": "Images",
     "start_line": 8188,
-    "html": "<p>![[foo]]</p>\n<p>[[foo]]: /url &quot;title&quot;</p>\n",
+    "orig_html": "<p>![[foo]]</p>\n<p>[[foo]]: /url &quot;title&quot;</p>\n",
+    "html": "<p><img src=\"/url\" alt=\"[foo]\" title=\"title\" /></p>\n",
     "markdown": "![[foo]]\n\n[[foo]]: /url \"title\"\n",
     "end_line": 8195,
     "example": 553
@@ -4482,7 +4484,7 @@
     "section": "Autolinks",
     "start_line": 8257,
     "html": "<p><a href=\"http://foo.bar.baz\">http://foo.bar.baz</a></p>\n",
-    "markdown": "<http://foo.bar.baz>\n",
+    "markdown": " <http://foo.bar.baz>\n",
     "end_line": 8261,
     "example": 557
   },
@@ -4490,7 +4492,7 @@
     "section": "Autolinks",
     "start_line": 8264,
     "html": "<p><a href=\"http://foo.bar.baz/test?q=hello&amp;id=22&amp;boolean\">http://foo.bar.baz/test?q=hello&amp;id=22&amp;boolean</a></p>\n",
-    "markdown": "<http://foo.bar.baz/test?q=hello&id=22&boolean>\n",
+    "markdown": " <http://foo.bar.baz/test?q=hello&id=22&boolean>\n",
     "end_line": 8268,
     "example": 558
   },
@@ -4498,7 +4500,7 @@
     "section": "Autolinks",
     "start_line": 8271,
     "html": "<p><a href=\"irc://foo.bar:2233/baz\">irc://foo.bar:2233/baz</a></p>\n",
-    "markdown": "<irc://foo.bar:2233/baz>\n",
+    "markdown": " <irc://foo.bar:2233/baz>\n",
     "end_line": 8275,
     "example": 559
   },
@@ -4506,7 +4508,7 @@
     "section": "Autolinks",
     "start_line": 8280,
     "html": "<p><a href=\"MAILTO:FOO@BAR.BAZ\">MAILTO:FOO@BAR.BAZ</a></p>\n",
-    "markdown": "<MAILTO:FOO@BAR.BAZ>\n",
+    "markdown": " <MAILTO:FOO@BAR.BAZ>\n",
     "end_line": 8284,
     "example": 560
   },
@@ -4514,7 +4516,7 @@
     "section": "Autolinks",
     "start_line": 8292,
     "html": "<p><a href=\"a+b+c:d\">a+b+c:d</a></p>\n",
-    "markdown": "<a+b+c:d>\n",
+    "markdown": " <a+b+c:d>\n",
     "end_line": 8296,
     "example": 561
   },
@@ -4522,7 +4524,7 @@
     "section": "Autolinks",
     "start_line": 8299,
     "html": "<p><a href=\"made-up-scheme://foo,bar\">made-up-scheme://foo,bar</a></p>\n",
-    "markdown": "<made-up-scheme://foo,bar>\n",
+    "markdown": " <made-up-scheme://foo,bar>\n",
     "end_line": 8303,
     "example": 562
   },
@@ -4530,7 +4532,7 @@
     "section": "Autolinks",
     "start_line": 8306,
     "html": "<p><a href=\"http://../\">http://../</a></p>\n",
-    "markdown": "<http://../>\n",
+    "markdown": " <http://../>\n",
     "end_line": 8310,
     "example": 563
   },
@@ -4538,7 +4540,7 @@
     "section": "Autolinks",
     "start_line": 8313,
     "html": "<p><a href=\"localhost:5001/foo\">localhost:5001/foo</a></p>\n",
-    "markdown": "<localhost:5001/foo>\n",
+    "markdown": " <localhost:5001/foo>\n",
     "end_line": 8317,
     "example": 564
   },
@@ -4546,7 +4548,7 @@
     "section": "Autolinks",
     "start_line": 8322,
     "html": "<p>&lt;http://foo.bar/baz bim&gt;</p>\n",
-    "markdown": "<http://foo.bar/baz bim>\n",
+    "markdown": " <http://foo.bar/baz bim>\n",
     "end_line": 8326,
     "example": 565
   },
@@ -4554,7 +4556,7 @@
     "section": "Autolinks",
     "start_line": 8331,
     "html": "<p><a href=\"http://example.com/%5C%5B%5C\">http://example.com/\\[\\</a></p>\n",
-    "markdown": "<http://example.com/\\[\\>\n",
+    "markdown": " <http://example.com/\\[\\>\n",
     "end_line": 8335,
     "example": 566
   },
@@ -4562,7 +4564,7 @@
     "section": "Autolinks",
     "start_line": 8353,
     "html": "<p><a href=\"mailto:foo@bar.example.com\">foo@bar.example.com</a></p>\n",
-    "markdown": "<foo@bar.example.com>\n",
+    "markdown": " <foo@bar.example.com>\n",
     "end_line": 8357,
     "example": 567
   },
@@ -4570,7 +4572,7 @@
     "section": "Autolinks",
     "start_line": 8360,
     "html": "<p><a href=\"mailto:foo+special@Bar.baz-bar0.com\">foo+special@Bar.baz-bar0.com</a></p>\n",
-    "markdown": "<foo+special@Bar.baz-bar0.com>\n",
+    "markdown": " <foo+special@Bar.baz-bar0.com>\n",
     "end_line": 8364,
     "example": 568
   },
@@ -4578,7 +4580,7 @@
     "section": "Autolinks",
     "start_line": 8369,
     "html": "<p>&lt;foo+@bar.example.com&gt;</p>\n",
-    "markdown": "<foo\\+@bar.example.com>\n",
+    "markdown": " <foo\\+@bar.example.com>\n",
     "end_line": 8373,
     "example": 569
   },
