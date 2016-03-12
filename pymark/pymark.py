@@ -687,7 +687,7 @@ class RuleDelimiter(InlineRule):
                 if not opener_found:
                     closer = closer.get('next')
                     # set lower bound for future searches for openers
-                    openers_bottom[closer_char] = old_closer['prev']
+                    opener_bottom[closer_char] = old_closer['prev']
                     if not old_closer['can_open']:
                         RuleDelimiter._remove_delimiter(parser, old_closer)
                     continue
@@ -1897,7 +1897,7 @@ class HTMLBlockParser(BlockParser):
     @staticmethod
     def parse(parser):
         line = parser.line
-        if line.indented:
+        if line.indent > 0:
             # we require HTML block to have no indent at all(0 space)
             return None
 
