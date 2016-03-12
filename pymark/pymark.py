@@ -1090,7 +1090,7 @@ class Parser(object):
         ret = self.tip
         parent = self.tip.parent
         self.tip.unlink()
-        self.tip = parent.tail_child if parent.tail_child else parent
+        self.tip = parent.last_child if parent.last_child else parent
         return ret
 
     def parse_line(self, line):
