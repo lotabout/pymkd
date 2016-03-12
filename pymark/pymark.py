@@ -95,9 +95,9 @@ class Line(object):
                 # __> abc  => _____abc (5 space + abc)
                 tab_spaces = 4 - (self.column % 4)
 
-                self.partial_consumed_tab = tab_space > count
+                self.partial_consumed_tab = tab_spaces > count
 
-                column_to_advance = count if tab_space > count else tab_space
+                column_to_advance = count if tab_spaces > count else tab_spaces
                 self.column += column_to_advance
                 self.offset += 0 if self.partial_consumed_tab else 1
 
@@ -122,7 +122,7 @@ class Line(object):
         if self.partial_consumed_tab:
             self.offset += 1
             tab_spaces = 4 - (self.column % 4)
-            ret += ' ' * tab_as_space
+            ret += ' ' * tab_spaces
         return ret + self.line[self.offset:]
 
     @property
@@ -1183,16 +1183,18 @@ class Parser(object):
             for c in root:
                 self.parse_inlines(c)
 
-    def parse(self, input):
-        """parse the input string and return the AST"""
-        for line in input.split('\n'):
-            self.parse_line(line)
-
+    def parse_end(self):
         while self.tip:
             self.close(self.tip)
 
         self.parse_inlines(self.doc)
         return self.doc
+
+    def parse(self, input):
+        """parse the input string and return the AST"""
+        for line in input.split('\n'):
+            self.parse_line(line)
+        return self.parse_end()
 
 #==============================================================================
 # Various blocks
@@ -1467,6 +1469,15 @@ class CodeBlock(Block):
     def _get_content(self):
         return str(self._fence_char) + ': ' + self._fence_option + '>' + '|'.join(self.lines)
 
+    def close(self, parser):
+        if not self._fence_option:
+            # remove trailing blank lines
+            try:
+                while self.lines[-1].strip() == '':
+                    self.lines.pop()
+            except IndexError:
+                pass
+
     def can_strip(self, parser):
         line = parser.line
         if self._is_fence:
@@ -1670,7 +1681,7 @@ class ListItem(Block):
             # | |<--- offset
             #    1.  abc
             #  ->|   |<- padding
-            line.advance_offset(self.meta.marker_offset + self.meta.padding)
+            line.advance_offset(self.meta.marker_offset + self.meta.padding, True)
 
         else:
             return Block.NO
@@ -1715,7 +1726,6 @@ class ListItem(Block):
         elif block.name == 'Blank':
             return True
         return False
-
 
 class ListParser(BlockParser):
     re_bullet_list_marker = re.compile(r'^([*+-])')
@@ -1980,6 +1990,8 @@ class HTMLRenderer(object):
             ret.append(node._fence_option)
         ret.append('><code>')
         ret.append('\n'.join(node.lines))
+        if not node._is_fence:
+            ret.append('\n')
         ret.append('</code></pre>')
         ret.append(HTMLRenderer.block_separator)
         return ''.join(ret)
@@ -1990,7 +2002,7 @@ class HTMLRenderer(object):
 
     # BlockQuote
     def renderBlockQuote(self, node, info):
-        return self._block_tag('blockquote', self._render_child(node))
+        return self._block_tag('blockquote', HTMLRenderer.block_separator + self._render_child(node))
 
     # List
     def renderList(self, node, info):
@@ -1999,6 +2011,7 @@ class HTMLRenderer(object):
         ret = []
         if node.meta.type == 'ordered':
             ret.append('<ol start="')
+            ret.append(HTMLRenderer.block_separator)
             ret.append(str(node.meta.start))
             ret.append('">')
             ret.append(self._render_child(node, info))
@@ -2006,8 +2019,9 @@ class HTMLRenderer(object):
             ret.append(HTMLRenderer.block_separator)
         else:
             ret.append('<ul>')
+            ret.append(HTMLRenderer.block_separator)
             ret.append(self._render_child(node, info))
-            ret.append('</ol>')
+            ret.append('</ul>')
             ret.append(HTMLRenderer.block_separator)
 
         info['is_tight'] = False
@@ -2015,7 +2029,13 @@ class HTMLRenderer(object):
 
     # ListItem
     def renderListItem(self, node, info):
-        return self._block_tag('li', self._render_child(node, info))
+        content = self._render_child(node, info)
+        if not info.get('is_tight'):
+            content = HTMLRenderer.block_separator + content
+        elif (not isinstance(node.first_child, InlineNode)
+                and not isinstance(node.first_child, Paragraph)):
+            content = HTMLRenderer.block_separator + content
+        return self._block_tag('li', content)
 
     # HTMLBlock
     def renderHTMLBlock(self, node, info):
@@ -2070,76 +2090,15 @@ class HTMLRenderer(object):
         return self._tag('strong', self._render_child(node))
 
 #==============================================================================
-x = Parser()
-string = """
-1.
-2. abc
-> x
-1. <div
-     >aaa</div>
-2.   >aaa
 
-1. a
+def main():
+    parser = Parser()
+    renderer = HTMLRenderer()
 
-       x
-   c
+    for line in sys.stdin:
+        parser.parse_line(line)
+    doc = parser.parse_end()
+    print(renderer.render(doc))
 
-   > ---
-1. > 1. a
-bbb
-   >
-   > 1. b
-   >c
-> aaa
-c
-> bbb
-## ATX Level 2 Heading
-1. a
-   # a
-   b
-a
-
-
-   b
-   2. b
-
-      3. c
-4. d
-
-First heading
-====
-Second Heading
----
-aaaaaaa
-
-```python
-a = 10
-b = 20
-```
-
-"""
-#string = "![***em* strong**](http://www.baidu.com 'title') aaaa *b* "
-#string = """# *x*"""
-
-#string = """
-#&nbsp; &amp; &copy; &AElig; &Dcaron;
-#&frac34; &HilbertSpace; &DifferentialD;
-#&ClockwiseContourIntegral; &ngE;
-#"""
-
-#string = """
-#```
-#``` a
-#```
-#"""
-#string = """
-#[[haha][zz]][xx]
-
-   #[xx]: www.baidu.com
-    #[yy]: www.google.com
-   #"""
-
-doc = x.parse(string)
-renderer = HTMLRenderer()
-html = renderer.render(doc)
-print(html)
+if __name__ == '__main__':
+    main()
