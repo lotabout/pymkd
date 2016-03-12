@@ -1418,7 +1418,7 @@ class SetextHeadingParser(BlockParser):
         heading = BlockFactory.make_block('Heading', line.line_num, line.next_non_space)
         heading.level = 1 if match.group(0)[0] == '=' else 2
         paragraph = parser.unlink_tail()
-        heading.lines = paragraph.lines
+        heading.lines = map(lambda x: x.strip(), paragraph.lines)
         return heading
 
 class AtxHeadingParser(BlockParser):
@@ -1938,6 +1938,39 @@ class BlockFactory(object):
 #==============================================================================
 # HTML Renderer
 
+XMLSPECIAL = '[&<>"]'
+re_xml_special = re.compile(XMLSPECIAL)
+re_xml_special_or_entity = re.compile(ENTITY + '|' + XMLSPECIAL, re.IGNORECASE)
+
+UNSAFE_MAP = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+}
+
+
+def replace_unsafe_char(char):
+    return UNSAFE_MAP.get(char, char)
+
+def escape_xml(string, preserve_entities=False):
+    if string is None:
+        return ''
+    if re.search(re_xml_special, string):
+        if preserve_entities:
+            return re.sub(
+                re_xml_special_or_entity,
+                lambda m: replace_unsafe_char(m.group()),
+                string)
+        else:
+            return re.sub(
+                re_xml_special,
+                lambda m: replace_unsafe_char(m.group()),
+                string)
+    else:
+        return string
+
+
 def noop(node, info):
     return ''
 
@@ -2014,7 +2047,7 @@ class HTMLRenderer(object):
 
         self._cr()
         self._out(self._tag('pre') + self._tag('code', attrs))
-        self._out('\n'.join(node.lines))
+        self._out(escape_xml('\n'.join(node.lines)))
         self._out(self._tag('/code') + self._tag('/pre'))
         self._cr()
 
@@ -2041,7 +2074,8 @@ class HTMLRenderer(object):
         attrs = []
         if node.meta.type == 'ordered':
             tag = 'ol'
-            attrs.append(('start', str(node.meta.start)))
+            if node.meta.start != 1:
+                attrs.append(('start', str(node.meta.start)))
         else:
             tag = 'ul'
 
@@ -2069,7 +2103,7 @@ class HTMLRenderer(object):
 # Inline Level nodes
 
     def renderText(self, node, info):
-        self._out(node._literal)
+        self._out(escape_xml(node._literal))
 
     def renderCodeSpan(self, node, info):
         self._out(self._tag('code'))
@@ -2122,11 +2156,4 @@ def main():
     print(renderer.render(doc))
 
 if __name__ == '__main__':
-    #main()
-    parser = Parser()
-    renderer = HTMLRenderer()
-    string = "### ###"
-    doc = parser.parse(string)
-    print(doc)
-    html = renderer.render(doc)
-    print(repr(html))
+    main()
