@@ -465,6 +465,15 @@
   },
   {
     "section": "Setext headings",
+    "start_line": 1043,
+    "html": "<h2>`Foo</h2>\n<p>`</p>\n<h2>&lt;a title=&quot;a lot</h2>\n<p>of dashes&quot;/&gt;</p>\n",
+    "markdown": "`Foo\n----\n`\n\n <a title=\"a lot\n---\nof dashes\"/>\n",
+    "orig_markdown": "`Foo\n----\n`\n\n<a title=\"a lot\n---\nof dashes\"/>\n",
+    "end_line": 1056,
+    "example": 59
+  },
+  {
+    "section": "Setext headings",
     "start_line": 1062,
     "html": "<blockquote>\n<p>Foo</p>\n</blockquote>\n<hr />\n",
     "markdown": "> Foo\n---\n",
@@ -907,6 +916,7 @@
     "section": "HTML blocks",
     "start_line": 1968,
     "html": "<p><div>\n<em>hello</em>\n<foo><a></p>\n",
+    "orig_html": " <div>\n  *hello*\n         <foo><a>\n",
     "markdown": " <div>\n  *hello*\n         <foo><a>\n",
     "end_line": 1976,
     "example": 115
@@ -914,6 +924,7 @@
   {
     "section": "HTML blocks",
     "start_line": 1981,
+    "orig_html": "</div>\n*foo*\n",
     "html": "<p></div>\n<em>foo</em></p>\n",
     "markdown": "</div>\n*foo*\n",
     "end_line": 1987,
@@ -922,6 +933,7 @@
   {
     "section": "HTML blocks",
     "start_line": 1992,
+    "orig_html": "<DIV CLASS=\"foo\">\n<p><em>Markdown</em></p>\n</DIV>\n",
     "html": "<DIV CLASS=\"foo\">\n\n*Markdown*\n\n</DIV>\n",
     "markdown": "<DIV CLASS=\"foo\">\n\n*Markdown*\n\n</DIV>\n",
     "end_line": 2002,
@@ -946,6 +958,7 @@
   {
     "section": "HTML blocks",
     "start_line": 2031,
+    "orig_html": "<div>\n*foo*\n<p><em>bar</em></p>\n",
     "html": "<div>\n*foo*\n\n*bar*\n",
     "markdown": "<div>\n*foo*\n\n*bar*\n",
     "end_line": 2040,
@@ -994,6 +1007,7 @@
   {
     "section": "HTML blocks",
     "start_line": 2104,
+    "orig_html": "<div></div>\n``` c\nint x = 33;\n```\n",
     "html": "<div></div>\n<pre><code class=\"language-c\">int x = 33;\n</code></pre>\n",
     "markdown": "<div></div>\n``` c\nint x = 33;\n```\n",
     "end_line": 2114,
@@ -1026,6 +1040,7 @@
   {
     "section": "HTML blocks",
     "start_line": 2156,
+    "orig_html": "</ins>\n*bar*\n",
     "html": "<p></ins>\n<em>bar</em></p>\n",
     "markdown": "</ins>\n*bar*\n",
     "end_line": 2162,
@@ -1042,6 +1057,7 @@
   {
     "section": "HTML blocks",
     "start_line": 2186,
+    "orig_html": "<del>\n<p><em>foo</em></p>\n</del>\n",
     "html": "<del>\n\n*foo*\n\n</del>\n",
     "markdown": "<del>\n\n*foo*\n\n</del>\n",
     "end_line": 2196,
@@ -1050,6 +1066,7 @@
   {
     "section": "HTML blocks",
     "start_line": 2204,
+    "orig_html": "<p><del><em>foo</em></del></p>\n",
     "html": "<del>*foo*</del>\n",
     "markdown": "<del>*foo*</del>\n",
     "end_line": 2208,
@@ -1138,6 +1155,7 @@
   {
     "section": "HTML blocks",
     "start_line": 2369,
+    "orig_html": "<?php\n\n  echo '>';\n\n?>\n",
     "html": "<?php\n\n  echo '>';\n<p>?&gt;</p>\n",
     "markdown": "<?php\n\n  echo '>';\n\n?>\n",
     "end_line": 2381,
@@ -1162,6 +1180,7 @@
   {
     "section": "HTML blocks",
     "start_line": 2426,
+    "orig_html": "  <!-- foo -->\n<pre><code>&lt;!-- foo --&gt;\n</code></pre>\n",
     "html": "<p><!-- foo --></p>\n<pre><code>&lt;!-- foo --&gt;\n</code></pre>\n",
     "markdown": "  <!-- foo -->\n\n    <!-- foo -->\n",
     "end_line": 2434,
@@ -1170,6 +1189,7 @@
   {
     "section": "HTML blocks",
     "start_line": 2437,
+    "orig_html": "  <div>\n\n    <div>\n",
     "html": "<p><div></p>\n<pre><code>&lt;div&gt;\n</code></pre>\n",
     "markdown": "  <div>\n\n    <div>\n",
     "end_line": 2445,
@@ -1186,7 +1206,7 @@
   {
     "section": "HTML blocks",
     "start_line": 2467,
-    "html": "<div>\nbar\n</div>\n*foo*\n",
+    "orig_html": "<div>\nbar\n</div>\n*foo*\n",
     "html": "<div>\nbar\n</div>\n<p><em>foo</em></p>\n",
     "markdown": "<div>\nbar\n</div>\n*foo*\n",
     "end_line": 2477,
@@ -1197,12 +1217,14 @@
     "start_line": 2482,
     "html": "<p>Foo\n<a href=\"bar\">\nbaz</p>\n",
     "markdown": "Foo\n <a href=\"bar\">\nbaz\n",
+    "orig_markdown": "Foo\n<a href=\"bar\">\nbaz\n",
     "end_line": 2490,
     "example": 151
   },
   {
     "section": "HTML blocks",
     "start_line": 2523,
+    "orig_html": "<div>\n<p><em>Emphasized</em> text.</p>\n</div>\n",
     "html": "<div>\n\n*Emphasized* text.\n\n</div>\n",
     "markdown": "<div>\n\n*Emphasized* text.\n\n</div>\n",
     "end_line": 2533,
@@ -1219,6 +1241,7 @@
   {
     "section": "HTML blocks",
     "start_line": 2558,
+    "orig_html": "<table>\n<tr>\n<td>\nHi\n</td>\n</tr>\n</table>\n",
     "html": "<table>\n\n<tr>\n\n<td>\nHi\n</td>\n\n</tr>\n\n</table>\n",
     "markdown": "<table>\n\n<tr>\n\n<td>\nHi\n</td>\n\n</tr>\n\n</table>\n",
     "end_line": 2578,
@@ -1227,6 +1250,7 @@
   {
     "section": "HTML blocks",
     "start_line": 2585,
+    "orig_html": "<table>\n  <tr>\n<pre><code>&lt;td&gt;\n  Hi\n&lt;/td&gt;\n</code></pre>\n  </tr>\n</table>\n",
     "html": "<table>\n\n  <tr>\n\n    <td>\n      Hi\n    </td>\n\n  </tr>\n\n</table>\n",
     "markdown": "<table>\n\n  <tr>\n\n    <td>\n      Hi\n    </td>\n\n  </tr>\n\n</table>\n",
     "end_line": 2606,
@@ -1260,7 +1284,8 @@
     "section": "Link reference definitions",
     "start_line": 2662,
     "html": "<p><a href=\"my%20url\" title=\"title\">Foo bar</a></p>\n",
-    "markdown": "[Foo bar]:\n<my%20url>\n'title'\n\n[Foo bar]\n",
+    "markdown": "[Foo bar]:\n <my%20url>\n'title'\n\n[Foo bar]\n",
+    "orig_markdown": "[Foo bar]:\n<my%20url>\n'title'\n\n[Foo bar]\n",
     "end_line": 2670,
     "example": 159
   },

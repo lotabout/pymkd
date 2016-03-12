@@ -817,7 +817,7 @@ def parse_link_destination(parser, content):
         # chop off <..>
         description = description[1:-1]
 
-    return normalize_uri(description) if description else None
+    return normalize_uri(unescape_string(description)) if description else None
 
 class RuleLink(InlineRule):
     """Rule for parsing link"""
@@ -870,8 +870,18 @@ class RuleLink(InlineRule):
                 dest = parser.refmap[ref_label]['dest']
                 title = parser.refmap[ref_label]['title']
         else:
-            # not matched
-            pass
+            # reference link [ref label]
+            ref_label = normalize_reference(label)
+
+            # if side effect if False, do not lookup the refmap, and consider it as a token
+            if not side_effect:
+                matched = True
+                dest = ''
+                title = ''
+            elif ref_label is not None and ref_label in parser.refmap:
+                matched = True
+                dest = parser.refmap[ref_label]['dest']
+                title = parser.refmap[ref_label]['title']
 
         if not matched:
             content.pos = start_pos
@@ -921,7 +931,10 @@ class RuleNewline(InlineRule):
             return None
         content.advance()
 
-        last_child = parser.node.last_child
+        try:
+            last_child = parser.node.last_child
+        except AttributeError:
+            last_child = None
         if last_child and last_child.name == 'text' and last_child._literal[-1] == ' ':
             hardbreak = len(last_child._literal) >= 2 and last_child._literal[-1] == ' '
             last_child._literal = re_final_space.sub('', last_child._literal)
@@ -962,7 +975,8 @@ class RuleText(InlineRule):
 
 #------------------------------------------------------------------------------
 # Rule: Reference Link Definition
-#
+re_space_at_end_of_line = re.compile(r'^ *(?:\n|$)')
+
 # This is actually a leaf block, so we don't inherit Inline Rule
 class RuleReferenceLink(object):
     """Reference Link Definition"""
@@ -997,6 +1011,26 @@ class RuleReferenceLink(object):
         if title is None:
             title = ''
             content.pos = before_title
+
+        # check if we are at the end of the line
+        at_line_end = True
+
+        if content.match(re_space_at_end_of_line) is None:
+            # still have other contents
+            if title == '':
+                at_line_end = False
+            else:
+                # the potential title we found is not at the end of the line
+                # but it could still be a legal link reference if we discard
+                # the title. i.e. we've matched a title that might belong to
+                # later contents
+                title = ''
+                content.pos = before_title
+                at_line_end = content.match(re_space_at_end_of_line) is not None
+
+        if not at_line_end:
+            content.pos = start_pos
+            return None
 
         node = InlineNode('Ref')
         node._href = dest
@@ -1308,6 +1342,7 @@ class Paragraph(Block):
 
     def __init__(self, *args, **kws):
         super(Paragraph, self).__init__(*args, **kws)
+        self.is_empty = False
 
     def can_strip(self, parser):
         return Block.NO if parser.line.blank else Block.YES
@@ -1330,7 +1365,10 @@ class Paragraph(Block):
             has_ref_defs = True
             self.append_child(node)
 
-        self.lines = content.rest.split('\n')
+        if has_ref_defs and content.rest.strip() == '':
+            self.is_empty = True
+        else:
+            self.lines = content.rest.split('\n')
 
     def consume(self, parser):
         block = parser.parse_rest()
@@ -2030,6 +2068,9 @@ class HTMLRenderer(object):
 
     # Paragraph
     def renderParagraph(self, node, info):
+        if node.is_empty:
+            return
+
         if not info.get('is_tight'):
             self._cr()
             self._out(self._tag('p'))
@@ -2130,18 +2171,18 @@ class HTMLRenderer(object):
         self._out(self._tag('br', [], True))
 
     def renderLink(self, node, info):
-        attrs = [('href', node._href)]
+        attrs = [('href', escape_xml(node._href, True))]
         if node._title:
-            attrs.append(('title', node._title))
+            attrs.append(('title', escape_xml(node._title, True)))
 
         self._out(self._tag('a', attrs))
         self._render_child(node)
         self._out(self._tag('/a'))
 
     def renderImage(self, node, info):
-        self._out('<img src="{0}" alt='.format(node._href))
+        self._out('<img src="{0}" alt='.format(escape_xml(node._href, True)))
         self._render_child(node)
-        self._out('" title="{0}" />'.format(node._title))
+        self._out('" title="{0}" />'.format(escape_xml(node._title, True)))
 
 
     def renderHTMLInline(self, node, info):
