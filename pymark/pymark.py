@@ -1423,7 +1423,8 @@ class SetextHeadingParser(BlockParser):
 
 class AtxHeadingParser(BlockParser):
     re_atx_heading_line = re.compile(r'^#{1,6}(?: +|$)')
-    re_trail_hash = re.compile(r' +#+ *$')
+    re_trail_hash_1 = re.compile(r'^ *#+ *$')
+    re_trail_hash_2 = re.compile(r' +#+ *$')
 
     @staticmethod
     def parse(parser):
@@ -1445,7 +1446,9 @@ class AtxHeadingParser(BlockParser):
         heading.level = len(match.group(0).strip())
 
         # remove trailing ###s:
-        heading.lines.append(AtxHeadingParser.re_trail_hash.sub('', line.after_strip.strip()))
+        headline = line.after_strip.strip()
+        heading.lines.append(AtxHeadingParser.re_trail_hash_2.sub('',
+            AtxHeadingParser.re_trail_hash_1.sub('', headline)))
 
         return heading
 
@@ -2122,7 +2125,7 @@ if __name__ == '__main__':
     #main()
     parser = Parser()
     renderer = HTMLRenderer()
-    string = "\\## foo\n"
+    string = "### ###"
     doc = parser.parse(string)
     print(doc)
     html = renderer.render(doc)
