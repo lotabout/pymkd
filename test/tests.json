@@ -2581,7 +2581,7 @@
     "section": "Code spans",
     "start_line": 5669,
     "html": "<p><a href=\"`\">`</p>\n",
-    "markdown": "<a href=\"`\">`\n",
+    "markdown": " <a href=\"`\">`\n",
     "end_line": 5673,
     "example": 320
   },
@@ -2597,7 +2597,7 @@
     "section": "Code spans",
     "start_line": 5687,
     "html": "<p><a href=\"http://foo.bar.%60baz\">http://foo.bar.`baz</a>`</p>\n",
-    "markdown": "<http://foo.bar.`baz>`\n",
+    "markdown": " <http://foo.bar.`baz>`\n",
     "end_line": 5691,
     "example": 322
   },

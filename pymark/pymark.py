@@ -16,8 +16,8 @@ except ImportError:
 
 if sys.version_info >= (3, 0):
     if sys.version_info >= (3, 4):
-        import html.parser
-        HTMLunescape = html.parser.HTMLParser().unescape
+        import html
+        HTMLunescape = html.unescape
     else:
         from .entitytrans import _unescape
         HTMLunescape = _unescape
@@ -459,7 +459,7 @@ class RuleCodeSpan(InlineRule):
             matched = content.match(re_ticks)
 
         # not matched, resume position
-        self.pos = after_open_ticks
+        content.pos = after_open_ticks
         return InlineNode('Text', ticks)
 
 #------------------------------------------------------------------------------
@@ -569,9 +569,10 @@ class RuleDelimiter(InlineRule):
         char_after = content.peek()
         char_after = char_after if char_after else '\n'
 
-        after_is_whitespace   = re_whitespace_char.match(char_after)
+        # python 2 doesn't recognize '\xa0' as whitespace
+        after_is_whitespace   = re_whitespace_char.match(char_after) or char_after == '\xa0'
         after_is_punctuation  = re_punctuation.match(char_after)
-        before_is_whitespace  = re_whitespace_char.match(char_before)
+        before_is_whitespace  = re_whitespace_char.match(char_before) or char_before == '\xa0'
         before_is_punctuation = re_punctuation.match(char_before)
 
         left_flanking = (not after_is_whitespace) and not (after_is_punctuation and
@@ -598,7 +599,9 @@ class RuleDelimiter(InlineRule):
             delim['prev']['next'] = delim.get('next')
         if delim.get('next') is None:
             # top of stack
-            parser.delimiters = delim.get('previous')
+            parser.delimiters = delim.get('prev')
+        else:
+            delim['next']['prev'] = delim.get('prev')
 
     @staticmethod
     def _remove_delimiter_between(bottom, top):
@@ -1885,7 +1888,12 @@ except:
 
 class HTMLContentParser(HTMLParser):
     def __init__(self):
-        HTMLParser.__init__(self)
+
+        if sys.version_info >= (3, 5):
+            HTMLParser.__init__(self, convert_charrefs=True)
+        else:
+            HTMLParser.__init__(self)
+
         self.first_tag = None
         self.tag_num = 1 # once initialized, it is an open-tag
     def handle_starttag(self, tag, attrs):
@@ -2065,7 +2073,7 @@ class HTMLRenderer(object):
     def _tag(self, tagname, attrs=[], selfclosing=False):
         result = '<'+tagname
         for attr in attrs:
-            result += ' {0}="{1}"'.format(attr[0], attr[1])
+            result += " " + attr[0] + '="' + attr[1] + '"'
 
         if selfclosing:
             result += ' /'
@@ -2175,7 +2183,7 @@ class HTMLRenderer(object):
 
     def renderCodeSpan(self, node, info):
         self._out(self._tag('code'))
-        self._out(node._literal)
+        self._out(escape_xml(node._literal))
         self._out(self._tag('/code'))
 
     def renderSoftBreak(self, node, info):
