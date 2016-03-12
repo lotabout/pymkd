@@ -1477,6 +1477,7 @@ class CodeBlock(Block):
                     self.lines.pop()
             except IndexError:
                 pass
+            self.lines.append('')
 
     def can_strip(self, parser):
         line = parser.line
@@ -1944,7 +1945,18 @@ class HTMLRenderer(object):
     block_separator = '\n'
 
     def render(self, root):
-        return ''.join(self._render(root))
+        self._ret = []
+        self._last_out = '\n'
+        self._render(root)
+        return ''.join(self._ret)
+
+    def _out(self, content):
+        self._ret.append(content)
+        self._last_out = content
+
+    def _cr(self):
+        if self._last_out != HTMLRenderer.block_separator:
+            self._out(HTMLRenderer.block_separator)
 
     def _render(self, node, info={}):
         """dispatch function for a node"""
@@ -1952,142 +1964,149 @@ class HTMLRenderer(object):
         return method(node, info)
 
     def _render_child(self, root, info={}):
-        ret = []
         for child in root:
-            ret.append(self._render(child, info))
-        return ''.join(ret)
+            self._render(child, info)
 
-    def _tag(self, tagname, content=''):
-        return '<'+tagname+'>' + content +'</'+tagname+'>'
+    def _tag(self, tagname, attrs=[], selfclosing=False):
+        result = '<'+tagname
+        for attr in attrs:
+            result += ' {0}="{1}"'.format(attr[0], attr[1])
 
-    def _block_tag(self, tagname, content=''):
-        return self._tag(tagname, content) + HTMLRenderer.block_separator
+        if selfclosing:
+            result += ' /'
+        result += '>'
+        return result
 
 #----------------------------------------------------------------------
 # Block Level nodes
 
     # Document
     def renderDocument(self, node, info):
-        ret = []
         return self._render_child(node)
 
     # Paragraph
     def renderParagraph(self, node, info):
         if not info.get('is_tight'):
-            return self._block_tag('p', self._render_child(node))
+            self._cr()
+            self._out(self._tag('p'))
+            self._render_child(node)
+            self._out(self._tag('/p'))
+            self._cr()
         else:
-            return self._render_child(node)
+            self._render_child(node)
 
     # Heading
     def renderHeading(self, node, info):
-        return self._block_tag('h'+str(node.level), self._render_child(node))
+        tagname = 'h'+str(node.level)
+        self._cr()
+        self._out(self._tag(tagname))
+        self._render_child(node)
+        self._out(self._tag('/'+tagname))
+        self._cr()
 
     # CodeBlock
     def renderCodeBlock(self, node, info):
-        ret = ['<pre']
+        attrs = []
         if node._is_fence:
-            ret.append(' class=language-')
-            ret.append(node._fence_option)
-        ret.append('><code>')
-        ret.append('\n'.join(node.lines))
-        if not node._is_fence:
-            ret.append('\n')
-        ret.append('</code></pre>')
-        ret.append(HTMLRenderer.block_separator)
-        return ''.join(ret)
+            attrs.append(('class', 'language-'+ node._fence_option))
+
+        self._cr()
+        self._out(self._tag('pre') + self._tag('code', attrs))
+        self._out('\n'.join(node.lines))
+        self._out(self._tag('/code') + self._tag('/pre'))
+        self._cr()
 
     # ThematicBreak
     def renderThematicBreak(self, node, info):
-        return '<hr/>\n'
+        self._cr()
+        self._out(self._tag(hr, selfclosing=True))
+        self._cr()
 
     # BlockQuote
     def renderBlockQuote(self, node, info):
-        return self._block_tag('blockquote', HTMLRenderer.block_separator + self._render_child(node))
+        self._cr()
+        self._out(self._tag('blockquote'))
+        self._cr()
+        self._render_child(node)
+        self._cr()
+        self._out(self._tag('/blockquote'))
+        self._cr()
 
     # List
     def renderList(self, node, info):
         info['is_tight'] = node.tight
 
-        ret = []
+        attrs = []
         if node.meta.type == 'ordered':
-            ret.append('<ol start="')
-            ret.append(HTMLRenderer.block_separator)
-            ret.append(str(node.meta.start))
-            ret.append('">')
-            ret.append(self._render_child(node, info))
-            ret.append('</ol>')
-            ret.append(HTMLRenderer.block_separator)
+            tag = 'ol'
+            attrs.append(('start', str(node.meta.start)))
         else:
-            ret.append('<ul>')
-            ret.append(HTMLRenderer.block_separator)
-            ret.append(self._render_child(node, info))
-            ret.append('</ul>')
-            ret.append(HTMLRenderer.block_separator)
+            tag = 'ul'
+
+        self._cr()
+        self._out(self._tag(tag, attrs))
+        self._cr()
+        self._render_child(node, info)
+        self._cr()
+        self._out(self._tag('/'+tag))
+        self._cr()
 
         info['is_tight'] = False
-        return ''.join(ret)
 
     # ListItem
     def renderListItem(self, node, info):
-        content = self._render_child(node, info)
-        if not info.get('is_tight'):
-            content = HTMLRenderer.block_separator + content
-        elif (not isinstance(node.first_child, InlineNode)
-                and not isinstance(node.first_child, Paragraph)):
-            content = HTMLRenderer.block_separator + content
-        return self._block_tag('li', content)
+        self._out(self._tag('li'))
+        self._render_child(node, info)
+        self._out(self._tag('/li'))
+        self._cr()
 
     # HTMLBlock
     def renderHTMLBlock(self, node, info):
-        return '\n'.join(node.lines)
-
+        self._out('\n'.join(node.lines))
 #----------------------------------------------------------------------
 # Inline Level nodes
 
     def renderText(self, node, info):
-        return node._literal
+        self._out(node._literal)
 
     def renderCodeSpan(self, node, info):
-        return self._tag('code', node._literal)
+        self._out(self._tag('code'))
+        self._out(node._literal)
+        self._out(self._tag('/code'))
 
     def renderSoftBreak(self, node, info):
-        return '\n'
+        self._out('\n')
 
     def renderHardBreak(self, node, info):
-        return '<br/>'
+        self._out(self._tag('br', [], True))
 
     def renderLink(self, node, info):
-        ret = ['<a href="']
-        ret.append(node._href)
-        ret.append('"')
+        attrs = [('href', node._href)]
         if node._title:
-            ret.append(' title="')
-            ret.append(node._title)
-            ret.append('"')
-        ret.append(self._render_child(node))
-        ret.append('</a>')
-        return ''.join(ret)
+            attrs.append(('title', node._title))
+
+        self._out(self._tag('a', attrs))
+        self._render_child(node)
+        self._out(self._tag('/a'))
 
     def renderImage(self, node, info):
-        ret = ['<img href="']
-        ret.append(node._href)
-        ret.append('"')
-        if node._title:
-            ret.append(' title="')
-            ret.append(node._title)
-            ret.append('"')
-        ret.append(self._render_child(node))
-        ret.append('</img>')
-        return ''.join(ret)
+        self._out('<img src="{0}" alt='.format(node._href))
+        self._render_child(node)
+        self._out('" title="{0}" />'.format(node._title))
+
 
     def renderHTMLInline(self, node, info):
-        return node._literal
+        self._out(node._literal)
 
     def renderEmph(self, node, info):
-        return self._tag('emph', self._render_child(node))
+        self._out(self._tag('em'))
+        self._render_child(node)
+        self._out(self._tag('/em'))
 
     def renderStrong(self, node, info):
-        return self._tag('strong', self._render_child(node))
+        self._out(self._tag('strong'))
+        self._render_child(node)
+        self._out(self._tag('/strong'))
 
 #==============================================================================
 
@@ -2101,4 +2120,11 @@ def main():
     print(renderer.render(doc))
 
 if __name__ == '__main__':
-    main()
+    #main()
+    parser = Parser()
+    renderer = HTMLRenderer()
+    string = " - foo\n   - bar\n\t - baz\n"
+    doc = parser.parse(string)
+    print(doc)
+    html = renderer.render(doc)
+    print(repr(html))
