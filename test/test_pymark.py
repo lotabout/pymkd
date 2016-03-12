@@ -25,7 +25,7 @@ def _add_test(test_case):
 
 with open(os.path.join(os.path.dirname(__file__), 'tests.json')) as fp:
     data = json.load(fp)
-for test in data:
+for test in data[:110]:
     _add_test(test)
 
 

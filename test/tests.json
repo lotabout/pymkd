@@ -465,14 +465,6 @@
   },
   {
     "section": "Setext headings",
-    "start_line": 1043,
-    "html": "<h2>`Foo</h2>\n<p>`</p>\n<h2>&lt;a title=&quot;a lot</h2>\n<p>of dashes&quot;/&gt;</p>\n",
-    "markdown": "`Foo\n----\n`\n\n<a title=\"a lot\n---\nof dashes\"/>\n",
-    "end_line": 1056,
-    "example": 59
-  },
-  {
-    "section": "Setext headings",
     "start_line": 1062,
     "html": "<blockquote>\n<p>Foo</p>\n</blockquote>\n<hr />\n",
     "markdown": "> Foo\n---\n",

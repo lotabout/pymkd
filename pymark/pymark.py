@@ -452,7 +452,7 @@ class RuleCodeSpan(InlineRule):
             if matched == ticks:
                 # found matched
                 node = InlineNode('CodeSpan')
-                literal = content.string[after_open_ticks:self.pos - len(ticks)]
+                literal = content.string[after_open_ticks:content.pos - len(ticks)]
                 literal = re_whitespace.sub(' ', literal.strip())
                 node._literal = literal
                 return node
@@ -2052,7 +2052,9 @@ class HTMLRenderer(object):
     def renderCodeBlock(self, node, info):
         attrs = []
         if node._is_fence and node._fence_option:
-            attrs.append(('class', 'language-'+ node._fence_option))
+            option = re.split('\s+', node._fence_option)
+            if len(option) > 0 and len(option[0]) > 0:
+                attrs.append(('class', 'language-'+ option[0]))
 
         self._cr()
         self._out(self._tag('pre') + self._tag('code', attrs))
