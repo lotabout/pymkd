@@ -3892,7 +3892,8 @@
   {
     "section": "Links",
     "start_line": 7393,
-    "html": "<p>[foo <a href=\"/uri\">bar</a>](/uri)</p>\n",
+    "orig_html": "<p>[foo <a href=\"/uri\">bar</a>](/uri)</p>\n",
+    "html": "<p><a href=\"/uri\">foo <a href=\"/uri\">bar</a></a></p>\n",
     "markdown": "[foo [bar](/uri)](/uri)\n",
     "end_line": 7397,
     "example": 484
@@ -3900,7 +3901,8 @@
   {
     "section": "Links",
     "start_line": 7400,
-    "html": "<p>[foo <em>[bar <a href=\"/uri\">baz</a>](/uri)</em>](/uri)</p>\n",
+    "orig_html": "<p>[foo <em>[bar <a href=\"/uri\">baz</a>](/uri)</em>](/uri)</p>\n",
+    "html": "<p><a href=\"/uri\">foo <em><a href=\"/uri\">bar <a href=\"/uri\">baz</a></a></em></a></p>\n",
     "markdown": "[foo *[bar [baz](/uri)](/uri)*](/uri)\n",
     "end_line": 7404,
     "example": 485
@@ -3908,7 +3910,8 @@
   {
     "section": "Links",
     "start_line": 7407,
-    "html": "<p><img src=\"uri3\" alt=\"[foo](uri2)\" /></p>\n",
+    "orig_html": "<p><img src=\"uri3\" alt=\"[foo](uri1)\" /></p>\n",
+    "html": "<p><img src=\"uri3\" alt=\"[[foo](uri1)](uri2)\" /></p>\n",
     "markdown": "![[[foo](uri1)](uri2)](uri3)\n",
     "end_line": 7411,
     "example": 486
@@ -4004,7 +4007,8 @@
   {
     "section": "Links",
     "start_line": 7548,
-    "html": "<p>[foo <a href=\"/uri\">bar</a>]<a href=\"/uri\">ref</a></p>\n",
+    "orig_html": "<p>[foo <a href=\"/uri\">bar</a>]<a href=\"/uri\">ref</a></p>\n",
+    "html": "<p><a href=\"/uri\">foo <a href=\"/uri\">bar</a></a></p>\n",
     "markdown": "[foo [bar](/uri)][ref]\n\n[ref]: /uri\n",
     "end_line": 7554,
     "example": 498
@@ -4012,7 +4016,8 @@
   {
     "section": "Links",
     "start_line": 7557,
-    "html": "<p>[foo <em>bar <a href=\"/uri\">baz</a></em>]<a href=\"/uri\">ref</a></p>\n",
+    "orig_html": "<p>[foo <em>bar <a href=\"/uri\">baz</a></em>]<a href=\"/uri\">ref</a></p>\n",
+    "html": "<p><a href=\"/uri\">foo <em>bar <a href=\"/uri\">baz</a></em></a></p>\n",
     "markdown": "[foo *bar [baz][ref]*][ref]\n\n[ref]: /uri\n",
     "end_line": 7563,
     "example": 499

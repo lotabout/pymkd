@@ -714,8 +714,8 @@ class RuleDelimiter(InlineRule):
                 # remove used delimiters from stack elements and inlines
                 opener['num_delims'] -= use_delims
                 closer['num_delims'] -= use_delims
-                opener_inl.literal = opener_inl._literal[:len(opener_inl._literal)-use_delims]
-                closer_inl.literal = closer_inl._literal[:len(closer_inl._literal)-use_delims]
+                opener_inl._literal = opener_inl._literal[:len(opener_inl._literal)-use_delims]
+                closer_inl._literal = closer_inl._literal[:len(closer_inl._literal)-use_delims]
 
                 # build contents for new emph element
                 if use_delims == 1:
@@ -783,6 +783,7 @@ def parse_link_label(parser, content):
 
         parser.skip_token(content)
         if content.peek() == '[':
+            content.advance()
             level += 1
 
     if level == 0:
@@ -821,12 +822,12 @@ def parse_link_destination(parser, content):
         # chop off <..>
         description = description[1:-1]
 
-    return normalize_uri(unescape_string(description)) if description else None
+    return normalize_uri(unescape_string(description)) if description is not None else None
 
 class RuleLink(InlineRule):
     """Rule for parsing link"""
 
-    def parse(self, parser, content, side_effect=True):
+    def parse(self, parser, content, side_effect=True, parse_label=True):
         start_pos = content.pos
 
         label = parse_link_label(parser, content)
@@ -837,7 +838,8 @@ class RuleLink(InlineRule):
         matched = False
         title = ''
 
-        content.skip_spaces()
+        #content.skip_spaces()
+
         if content.peek() == '(':
             # inline link
             content.advance()
@@ -894,7 +896,8 @@ class RuleLink(InlineRule):
         node = InlineNode('Link')
         node._href = dest
         node._title = title
-        if label:
+        node._label = label
+        if label and parse_label:
             label_parser = InlineParser(parser.refmap)
             for child in label_parser.parse_content(label):
                 node.append_child(child)
@@ -914,7 +917,7 @@ class RuleImage(InlineRule):
         content.advance()
 
         rule = RuleLink()
-        node = rule.parse(parser, content, side_effect)
+        node = rule.parse(parser, content, side_effect, parse_label=False)
         if node is None:
             content.pos = start_pos
             return None
@@ -2203,9 +2206,12 @@ class HTMLRenderer(object):
         self._out(self._tag('/a'))
 
     def renderImage(self, node, info):
-        self._out('<img src="{0}" alt='.format(escape_xml(node._href, True)))
-        self._render_child(node)
-        self._out('" title="{0}" />'.format(escape_xml(node._title, True)))
+        self._out('<img src="{0}" alt="'.format(escape_xml(node._href, True)))
+        self._out(node._label)
+        self._out('"')
+        if node._title:
+            self._out(' title="{0}"'.format(escape_xml(node._title, True)))
+        self._out(' />')
 
 
     def renderHTMLInline(self, node, info):
