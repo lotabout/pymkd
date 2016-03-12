@@ -426,7 +426,6 @@ class RuleEscape(InlineRule):
             content.advance()
             return InlineNode('HardBreak')
         elif next_char is not None and content.match(re_escapable):
-            content.advance()
             return InlineNode('Text', next_char)
         else:
             return InlineNode('Text', '\\')
@@ -1424,7 +1423,7 @@ class SetextHeadingParser(BlockParser):
 
 class AtxHeadingParser(BlockParser):
     re_atx_heading_line = re.compile(r'^#{1,6}(?: +|$)')
-    re_trail_hash = re.compile(r' +# *$')
+    re_trail_hash = re.compile(r' +#+ *$')
 
     @staticmethod
     def parse(parser):
@@ -1446,7 +1445,7 @@ class AtxHeadingParser(BlockParser):
         heading.level = len(match.group(0).strip())
 
         # remove trailing ###s:
-        heading.lines.append(AtxHeadingParser.re_trail_hash.sub('', line.after_strip))
+        heading.lines.append(AtxHeadingParser.re_trail_hash.sub('', line.after_strip.strip()))
 
         return heading
 
@@ -2019,7 +2018,7 @@ class HTMLRenderer(object):
     # ThematicBreak
     def renderThematicBreak(self, node, info):
         self._cr()
-        self._out(self._tag(hr, selfclosing=True))
+        self._out(self._tag('hr', selfclosing=True))
         self._cr()
 
     # BlockQuote
@@ -2123,7 +2122,7 @@ if __name__ == '__main__':
     #main()
     parser = Parser()
     renderer = HTMLRenderer()
-    string = " - foo\n   - bar\n\t - baz\n"
+    string = "\\## foo\n"
     doc = parser.parse(string)
     print(doc)
     html = renderer.render(doc)
