@@ -2127,7 +2127,8 @@
   {
     "section": "Lists",
     "start_line": 4800,
-    "html": "<ul>\n<li>\n<p>foo</p>\n</li>\n<li>\n<p>bar</p>\n</li>\n</ul>\n<ul>\n<li>baz</li>\n</ul>\n",
+    "orig_html": "<ul>\n<li>\n<p>foo</p>\n</li>\n<li>\n<p>bar</p>\n</li>\n</ul>\n<ul>\n<li>baz</li>\n</ul>\n",
+    "html": "<ul>\n<li>\n<p>foo</p>\n</li>\n<li>\n<p>bar</p>\n</li>\n<li>\n<p>baz</p>\n</li>\n</ul>\n",
     "markdown": "- foo\n\n- bar\n\n\n- baz\n",
     "end_line": 4819,
     "example": 264
@@ -2135,7 +2136,8 @@
   {
     "section": "Lists",
     "start_line": 4826,
-    "html": "<ul>\n<li>foo</li>\n</ul>\n<p>bar</p>\n<ul>\n<li>baz</li>\n</ul>\n",
+    "orig_html": "<ul>\n<li>foo</li>\n</ul>\n<p>bar</p>\n<ul>\n<li>baz</li>\n</ul>\n",
+    "html": "<ul>\n<li>\n<p>foo</p>\n<p>bar</p>\n</li>\n<li>\n<p>baz</p>\n</li>\n</ul>\n",
     "markdown": "- foo\n\n\n  bar\n- baz\n",
     "end_line": 4840,
     "example": 265
@@ -2143,7 +2145,8 @@
   {
     "section": "Lists",
     "start_line": 4845,
-    "html": "<ul>\n<li>foo\n<ul>\n<li>bar\n<ul>\n<li>baz</li>\n</ul>\n</li>\n</ul>\n</li>\n</ul>\n<pre><code>  bim\n</code></pre>\n",
+    "orig_html": "<ul>\n<li>foo\n<ul>\n<li>bar\n<ul>\n<li>baz</li>\n</ul>\n</li>\n</ul>\n</li>\n</ul>\n<pre><code>  bim\n</code></pre>\n",
+    "html": "<ul>\n<li>foo\n<ul>\n<li>bar\n<ul>\n<li>\n<p>baz</p>\n<p>bim</p>\n</li>\n</ul>\n</li>\n</ul>\n</li>\n</ul>\n",
     "markdown": "- foo\n  - bar\n    - baz\n\n\n      bim\n",
     "end_line": 4866,
     "example": 266
@@ -2151,7 +2154,8 @@
   {
     "section": "Lists",
     "start_line": 4874,
-    "html": "<ul>\n<li>foo</li>\n<li>bar</li>\n</ul>\n<ul>\n<li>baz</li>\n<li>bim</li>\n</ul>\n",
+    "orig_html": "<ul>\n<li>foo</li>\n<li>bar</li>\n</ul>\n<ul>\n<li>baz</li>\n<li>bim</li>\n</ul>\n",
+    "html": "<ul>\n<li>\n<p>foo</p>\n</li>\n<li>\n<p>bar</p>\n</li>\n<li>\n<p>baz</p>\n</li>\n<li>\n<p>bim</p>\n</li>\n</ul>\n",
     "markdown": "- foo\n- bar\n\n\n- baz\n- bim\n",
     "end_line": 4890,
     "example": 267
@@ -2159,7 +2163,8 @@
   {
     "section": "Lists",
     "start_line": 4893,
-    "html": "<ul>\n<li>\n<p>foo</p>\n<p>notcode</p>\n</li>\n<li>\n<p>foo</p>\n</li>\n</ul>\n<pre><code>code\n</code></pre>\n",
+    "orig_html": "<ul>\n<li>\n<p>foo</p>\n<p>notcode</p>\n</li>\n<li>\n<p>foo</p>\n</li>\n</ul>\n<pre><code>code\n</code></pre>\n",
+    "html": "<ul>\n<li>\n<p>foo</p>\n<p>notcode</p>\n</li>\n<li>\n<p>foo</p>\n<p>code</p>\n</li>\n</ul>\n",
     "markdown": "-   foo\n\n    notcode\n\n-   foo\n\n\n    code\n",
     "end_line": 4914,
     "example": 268

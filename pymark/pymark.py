@@ -1288,7 +1288,7 @@ class Block(Node):
 class BlockParser(object):
     """Parse a line for block"""
 
-    precedence = 10 # bigger number means LESS precedence
+    precedence = 100 # bigger number means LESS precedence
 
     @staticmethod
     def parse(parser):
@@ -1444,6 +1444,7 @@ class Heading(Block):
         return Block.NO
 
 class SetextHeadingParser(BlockParser):
+    precedence = 40
     re_setext_heading_line = re.compile(r'^(?:=+|-+) *$')
 
     @staticmethod
@@ -1466,6 +1467,7 @@ class SetextHeadingParser(BlockParser):
         return heading
 
 class AtxHeadingParser(BlockParser):
+    precedence = 50
     re_atx_heading_line = re.compile(r'^#{1,6}(?: +|$)')
     re_trail_hash_1 = re.compile(r'^ *#+ *$')
     re_trail_hash_2 = re.compile(r' +#+ *$')
@@ -1557,6 +1559,8 @@ class CodeBlock(Block):
         self.lines.append(parser.line.clean_line + '\n')
 
 class CodeBlockParser(BlockParser):
+    precedence = 10
+
     re_open_fence = re.compile(r'`{3,}(?!.*`)|^~{3,}(?!.*~)')
     re_closing_fence = re.compile(r'^(?:`{3,}|~{3,})(?= *$)')
 
@@ -1602,6 +1606,7 @@ class ThematicBreak(Block):
         return Block.NO
 
 class ThematicBreakParser(BlockParser):
+    precedence = 30
     re_thematic_break = re.compile(r'^(?:(?:\* *){3,}|(?:_ *){3,}|(?:- *){3,}) *$')
 
     @staticmethod
@@ -1640,6 +1645,7 @@ class BlockQuote(Block):
         return Block.YES
 
 class BlockQuoteParser(BlockParser):
+    precedence = 60
     @staticmethod
     def parse(parser):
         line = parser.line
@@ -1760,30 +1766,36 @@ class ListItem(Block):
         #    bbb  <- subitem
         # 2. ccc
         for item in self:
-            if item.name == 'Blank' and item.prv and item.nxt:
+            if ListItem._ends_with_blank_line(item) and item.prv and item.nxt:
                 return False
         return True
 
     @staticmethod
     def _ends_with_blank_line(block):
         """check if a container block ends with blank line"""
-        if block.type == 'container':
-            tail = block.tail_child
-            ret = tail and tail.name == 'Blank'
-            if tail and tail.parent.name == 'ListItem':
-                ret = tail.name == 'Blank' and ((block.first_child != block.last_child) or tail.blank_lines > 1)
-            return ret
-        elif block.name == 'Blank':
-            return True
-        return False
+        ret = False
+        while block:
+            if block.name == 'Blank':
+                ret = True
+            elif block.name == 'List' or block.name == 'ListItem':
+                last = block.last_child
+                ret = last and last.name == 'Blank'
+                if last and last.parent.name == 'ListItem':
+                    ret = last.name == 'Blank' and ((block.first_child != block.last_child) or last.blank_lines > 1)
+                block = last
+
+            if block.name != 'List' and block.name != 'ListItem':
+                break
+        return ret
 
 class ListParser(BlockParser):
+    precedence = 20
     re_bullet_list_marker = re.compile(r'^([*+-])')
     re_ordered_list_marker = re.compile(r'^(\d{1,9})([.)])')
 
     @staticmethod
     def parse(parser):
-        if parser.line.indented and parser.tip.name != 'List':
+        if parser.line.indented and parser.container.name != 'List':
             return None
 
         meta = ListParser.parse_list_marker(parser)
@@ -1928,7 +1940,7 @@ class HTMLBlock(Block):
 
 
 class HTMLBlockParser(BlockParser):
-    precedence = 1
+    precedence = 10
 
     re_html_block_start = re.compile(r'^<(!--|\?|![A-Z]|!\[CDATA\[|[a-zA-Z])')
 
