@@ -482,18 +482,19 @@ class RuleAutolink(InlineRule):
         if m_email:
             # match email
             match = m_email
+            href = 'mailto:' + match[1:-1]
         else:
             m_link = content.match(re_autolink)
             if m_link:
                 match = m_link
+                href = match[1:-1]
             else:
                 return None
 
-        dest = match[1:-1]
         node = InlineNode('Link')
-        node._destination = normalize_uri('mailto:' + dest)
+        node._href = normalize_uri(href)
         node._title = ''
-        node.append_child(InlineNode('Text', dest))
+        node.append_child(InlineNode('Text', href))
         return node
 
 #------------------------------------------------------------------------------
@@ -961,7 +962,7 @@ class RuleEntity(InlineRule):
 
 #------------------------------------------------------------------------------
 # Rule: Plain Text
-re_main = re.compile(r'^[^\n`\[\]\\!<&*_\'"]+', re.MULTILINE)
+re_main = re.compile(r'^[^\n`\[\]\\!<&*_\'"]+')
 
 class RuleText(InlineRule):
     """Plain Text"""
@@ -1520,7 +1521,7 @@ class CodeBlock(Block):
 
     def close(self, parser):
         if self._is_fence:
-            self._fence_option = self._fence_option.strip()
+            self._fence_option = unescape_string(self._fence_option.strip())
             self._literal = ''.join(self.lines)
             self.lines = []
         else:

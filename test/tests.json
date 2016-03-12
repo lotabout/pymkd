@@ -2365,7 +2365,7 @@
     "section": "Backslash escapes",
     "start_line": 5353,
     "html": "<p><a href=\"http://example.com?find=%5C*\">http://example.com?find=\\*</a></p>\n",
-    "markdown": "<http://example.com?find=\\*>\n",
+    "markdown": " <http://example.com?find=\\*>\n",
     "end_line": 5357,
     "example": 293
   },
