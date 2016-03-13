@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import absolute_import, unicode_literals
 
 import re
 import sys
@@ -22,7 +23,7 @@ if sys.version_info >= (3, 0):
         from .entitytrans import _unescape
         HTMLunescape = _unescape
 else:
-    import entitytrans
+    from pymark import entitytrans
     HTMLunescape = entitytrans._unescape
 
 #==============================================================================
@@ -571,9 +572,9 @@ class RuleDelimiter(InlineRule):
         char_after = char_after if char_after else '\n'
 
         # python 2 doesn't recognize '\xa0' as whitespace
-        after_is_whitespace   = re_whitespace_char.match(char_after) or char_after == '\xa0'
+        after_is_whitespace   = re_whitespace_char.match(char_after) or char_after == u'\xa0'
         after_is_punctuation  = re_punctuation.match(char_after)
-        before_is_whitespace  = re_whitespace_char.match(char_before) or char_before == '\xa0'
+        before_is_whitespace  = re_whitespace_char.match(char_before) or char_before == u'\xa0'
         before_is_punctuation = re_punctuation.match(char_before)
 
         left_flanking = (not after_is_whitespace) and not (after_is_punctuation and
@@ -2274,4 +2275,10 @@ def main():
     print(renderer.render(doc))
 
 if __name__ == '__main__':
-    main()
+    # main()
+    parser = Parser()
+    renderer = HTMLRenderer()
+    string = u'__foo__bar__baz__\n'
+    doc = parser.parse(string)
+    html = renderer.render(doc)
+    print(doc)
