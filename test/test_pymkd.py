@@ -4,12 +4,12 @@
 import json
 import os
 import unittest
-import pymark
+import pymkd
 
-class TestPymark(unittest.TestCase):
+class TestPymkd(unittest.TestCase):
     def check_markdown(self, info):
-        parser = pymark.Parser()
-        renderer = pymark.HTMLRenderer()
+        parser = pymkd.Parser()
+        renderer = pymkd.HTMLRenderer()
         output = renderer.render(parser.parse(info['markdown']))
         expected = info['html']
         self.assertEqual(expected, output, str(info['example'])+': '+info['section'] + '\n'
@@ -20,7 +20,7 @@ class TestPymark(unittest.TestCase):
 def _add_test(test_case):
     def test_method(self):
         self.check_markdown(test_case)
-    setattr(TestPymark, 'test_'+str(test_case['example']), test_method)
+    setattr(TestPymkd, 'test_'+str(test_case['example']), test_method)
     test_method.__name__ = 'test_' + str(test_case['example'])
 
 with open(os.path.join(os.path.dirname(__file__), 'tests.json')) as fp:

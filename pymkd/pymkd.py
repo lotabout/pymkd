@@ -23,7 +23,7 @@ if sys.version_info >= (3, 0):
         from .entitytrans import _unescape
         HTMLunescape = _unescape
 else:
-    from pymark import entitytrans
+    from pymkd import entitytrans
     HTMLunescape = entitytrans._unescape
 
 #==============================================================================
@@ -2275,10 +2275,4 @@ def main():
     print(renderer.render(doc))
 
 if __name__ == '__main__':
-    # main()
-    parser = Parser()
-    renderer = HTMLRenderer()
-    string = u'__foo__bar__baz__\n'
-    doc = parser.parse(string)
-    html = renderer.render(doc)
-    print(doc)
+    main()

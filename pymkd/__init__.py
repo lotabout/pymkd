@@ -1,4 +1,4 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from .pymark import Parser, HTMLRenderer
+from .pymkd import Parser, HTMLRenderer
