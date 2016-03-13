@@ -16,7 +16,7 @@ $ pip install pymkd
 
 ## Usage
 
-This is written in python 2
+This is written in python 2.
 
 ```python
 >>> import pymkd
@@ -35,6 +35,21 @@ Document[0, 0, 1, 14] []
             Text[1, 0, 0, 0] [world]
         Text[1, 0, 0, 0] [!]
 ```
+
+Or use the command line utility:
+
+```
+$ pymkd << EOF
+> 1. 10
+> 2. hello *world*
+> EOF
+<ol>
+<li>10</li>
+<li>hello <em>world</em></li>
+</ol>
+```
+
+Or use `pymkd -h` to see full usage.
 
 ## Difference with CommonMark
 
