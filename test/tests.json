@@ -4603,15 +4603,18 @@
   {
     "section": "Autolinks",
     "start_line": 8392,
-    "html": "<p>&lt;m:abc&gt;</p>\n",
+    "orig_html": "<p>&lt;m:abc&gt;</p>\n",
+    "html": "<m:abc>\n",
     "markdown": "<m:abc>\n",
+    "_comment": "It is parsed as HTML Block",
     "end_line": 8396,
     "example": 572
   },
   {
     "section": "Autolinks",
     "start_line": 8399,
-    "html": "<p>&lt;foo.bar.baz&gt;</p>\n",
+    "orig_html": "<p>&lt;foo.bar.baz&gt;</p>\n",
+    "html": "<foo.bar.baz>\n",
     "markdown": "<foo.bar.baz>\n",
     "end_line": 8403,
     "example": 573
@@ -4635,32 +4638,42 @@
   {
     "section": "Raw HTML",
     "start_line": 8495,
-    "html": "<p><a><bab><c2c></p>\n",
+    "orig_html": "<p><a><bab><c2c></p>\n",
+    "html": "<a><bab><c2c>\n",
     "markdown": "<a><bab><c2c>\n",
+    "_comment": "It is parsed as HTML Block",
     "end_line": 8499,
     "example": 576
   },
   {
     "section": "Raw HTML",
     "start_line": 8504,
-    "html": "<p><a/><b2/></p>\n",
+    "orig_html": "<p><a/><b2/></p>\n",
+    "html": "<a/><b2/>\n",
     "markdown": "<a/><b2/>\n",
+    "_comment": "It is parsed as HTML Block",
     "end_line": 8508,
     "example": 577
   },
   {
     "section": "Raw HTML",
     "start_line": 8513,
-    "html": "<p><a  /><b2\ndata=\"foo\" ></p>\n",
-    "markdown": "<a  /><b2\ndata=\"foo\" >\n",
+    "orig_html": "<p><a  /><b2\ndata=\"foo\" ></p>\n",
+    "html": "<p>bar <a  /><b2\ndata=\"foo\" ></p>\n",
+    "markdown": "bar <a  /><b2\ndata=\"foo\" >\n",
+    "orig_markdown": "<a  /><b2\ndata=\"foo\" >\n",
+    "_comment": "tag a is treated as HTML Block, but when it is inside paragraph, it is treated as HTML Inline",
     "end_line": 8519,
     "example": 578
   },
   {
     "section": "Raw HTML",
     "start_line": 8524,
-    "html": "<p><a foo=\"bar\" bam = 'baz <em>\"</em>'\n_boolean zoop:33=zoop:33 /></p>\n",
-    "markdown": "<a foo=\"bar\" bam = 'baz <em>\"</em>'\n_boolean zoop:33=zoop:33 />\n",
+    "orig_html": "<p><a foo=\"bar\" bam = 'baz <em>\"</em>'\n_boolean zoop:33=zoop:33 /></p>\n",
+    "html": "<p>foo <a foo=\"bar\" bam = 'baz <em>\"</em>'\n_boolean zoop:33=zoop:33 /></p>\n",
+    "markdown": "foo <a foo=\"bar\" bam = 'baz <em>\"</em>'\n_boolean zoop:33=zoop:33 />\n",
+    "orig_markdown": "<a foo=\"bar\" bam = 'baz <em>\"</em>'\n_boolean zoop:33=zoop:33 />\n",
+    "_comment": "tag a is treated as HTML Block, but when it is inside paragraph, it is treated as HTML Inline",
     "end_line": 8530,
     "example": 579
   },
@@ -4683,16 +4696,20 @@
   {
     "section": "Raw HTML",
     "start_line": 8553,
-    "html": "<p>&lt;a h*#ref=&quot;hi&quot;&gt;</p>\n",
-    "markdown": "<a h*#ref=\"hi\">\n",
+    "orig_html": "<p>&lt;a h*#ref=&quot;hi&quot;&gt;</p>\n",
+    "html": "<p>foo &lt;a h*#ref=&quot;hi&quot;&gt;</p>\n",
+    "markdown": "foo <a h*#ref=\"hi\">\n",
+    "orig_markdown": "<a h*#ref=\"hi\">\n",
     "end_line": 8557,
     "example": 582
   },
   {
     "section": "Raw HTML",
     "start_line": 8562,
-    "html": "<p>&lt;a href=&quot;hi'&gt; &lt;a href=hi'&gt;</p>\n",
-    "markdown": "<a href=\"hi'> <a href=hi'>\n",
+    "orig_html": "<p>&lt;a href=&quot;hi'&gt; &lt;a href=hi'&gt;</p>\n",
+    "html": "<p>foo &lt;a href=&quot;hi'&gt; &lt;a href=hi'&gt;</p>\n",
+    "markdown": "foo <a href=\"hi'> <a href=hi'>\n",
+    "orig_markdown": "<a href=\"hi'> <a href=hi'>\n",
     "end_line": 8566,
     "example": 583
   },
@@ -4707,8 +4724,10 @@
   {
     "section": "Raw HTML",
     "start_line": 8582,
-    "html": "<p>&lt;a href='bar'title=title&gt;</p>\n",
-    "markdown": "<a href='bar'title=title>\n",
+    "orig_html": "<p>&lt;a href='bar'title=title&gt;</p>\n",
+    "html": "<p>foo &lt;a href='bar'title=title&gt;</p>\n",
+    "markdown": "foo <a href='bar'title=title>\n",
+    "orig_markdown": "<a href='bar'title=title>\n",
     "end_line": 8586,
     "example": 585
   },
@@ -4795,8 +4814,10 @@
   {
     "section": "Raw HTML",
     "start_line": 8683,
-    "html": "<p>&lt;a href=&quot;&quot;&quot;&gt;</p>\n",
-    "markdown": "<a href=\"\\\"\">\n",
+    "orig_html": "<p>&lt;a href=&quot;&quot;&quot;&gt;</p>\n",
+    "html": "<p>foo &lt;a href=&quot;&quot;&quot;&gt;</p>\n",
+    "markdown": "foo <a href=\"\\\"\">\n",
+    "orig_markdown": "<a href=\"\\\"\">\n",
     "end_line": 8687,
     "example": 596
   },
@@ -4875,16 +4896,20 @@
   {
     "section": "Hard line breaks",
     "start_line": 8790,
-    "html": "<p><a href=\"foo  \nbar\"></p>\n",
-    "markdown": "<a href=\"foo  \nbar\">\n",
+    "orig_html": "<p><a href=\"foo  \nbar\"></p>\n",
+    "html": "<p>foo <a href=\"foo  \nbar\"></p>\n",
+    "markdown": "foo <a href=\"foo  \nbar\">\n",
+    "orig_markdown": "<a href=\"foo  \nbar\">\n",
     "end_line": 8796,
     "example": 606
   },
   {
     "section": "Hard line breaks",
     "start_line": 8799,
-    "html": "<p><a href=\"foo\\\nbar\"></p>\n",
-    "markdown": "<a href=\"foo\\\nbar\">\n",
+    "orig_html": "<p><a href=\"foo\\\nbar\"></p>\n",
+    "html": "<p>foo <a href=\"foo\\\nbar\"></p>\n",
+    "markdown": "foo <a href=\"foo\\\nbar\">\n",
+    "orig_markdown": "<a href=\"foo\\\nbar\">\n",
     "end_line": 8805,
     "example": 607
   },

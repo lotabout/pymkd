@@ -1891,6 +1891,13 @@ class ListParser(BlockParser):
 #------------------------------------------------------------------------------
 # HTML Block
 
+all_block_tag = set([ "address", "article", "aside", "base", "basefont", "blockquote", "body",
+    "caption", "center", "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt",
+    "fieldset", "figcaption", "figure", "footer", "form", "frame", "frameset", "h1", "head",
+    "header", "hr", "html", "iframe", "legend", "li", "link", "main", "menu", "menuitem", "meta",
+    "nav", "noframes", "ol", "optgroup", "option", "p", "param", "section", "source", "summary",
+    "table", "tbody", "td", "tfoot", "th", "thead", "title", "tr", "track", "ul"])
+
 try:
     from HTMLParser import HTMLParser
 except:
@@ -1899,7 +1906,7 @@ except:
 class HTMLContentParser(HTMLParser):
     def __init__(self):
 
-        if sys.version_info >= (3, 5):
+        if sys.version_info >= (3, 4):
             HTMLParser.__init__(self, convert_charrefs=True)
         else:
             HTMLParser.__init__(self)
@@ -1961,7 +1968,7 @@ class HTMLBlock(Block):
 class HTMLBlockParser(BlockParser):
     precedence = 10
 
-    re_html_block_start = re.compile(r'^<(!--|\?|![A-Z]|!\[CDATA\[|[a-zA-Z])')
+    re_html_block_start = re.compile(r'^<(?:!--|\?|![A-Z]|!\[CDATA\[|([a-zA-Z](?:[^ \n>])*))')
 
     @staticmethod
     def parse(parser):
@@ -1970,8 +1977,19 @@ class HTMLBlockParser(BlockParser):
             # we require HTML block to have no indent at all(0 space)
             return None
 
+        # try auto link, if it matches, return. Normally an autolink will not be an HTML tag anyway
+        match_email_autolink = re_email_autolink.match(line.after_strip)
+        match_autolink = re_autolink.match(line.after_strip)
+        if match_email_autolink or match_autolink:
+            return None
+
         match = HTMLBlockParser.re_html_block_start.match(line.after_strip)
         if match is None:
+            return None
+
+        # normal tag should not break a pragraph
+        tagname = match.group(1)
+        if parser.tip.name == 'Paragraph' and tagname != '' and tagname not in all_block_tag:
             return None
 
         # now we have an HTML start tag
